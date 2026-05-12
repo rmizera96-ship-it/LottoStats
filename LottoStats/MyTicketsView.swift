@@ -25,6 +25,8 @@ struct MyTicketsView: View {
                     plusSection
                 }
                 
+                inputActionsSection
+                
                 if let errorMessage = viewModel.errorMessage {
                     Text(errorMessage)
                         .font(.caption)
@@ -35,36 +37,6 @@ struct MyTicketsView: View {
                     Text(successMessage)
                         .font(.caption)
                         .foregroundStyle(.green)
-                }
-                
-                Button {
-                    viewModel.addCurrentLineToDraft()
-                } label: {
-                    HStack {
-                        Image(systemName: "plus.square.fill")
-                        Text("Dodaj zestaw do kuponu")
-                            .fontWeight(.semibold)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color(.secondarySystemBackground))
-                    .foregroundStyle(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                }
-                
-                Button {
-                    viewModel.generateRandomTicket()
-                } label: {
-                    HStack {
-                        Image(systemName: "dice.fill")
-                        Text("Wylosuj liczby")
-                            .fontWeight(.semibold)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color(.secondarySystemBackground))
-                    .foregroundStyle(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 
                 draftLinesSection
@@ -79,10 +51,11 @@ struct MyTicketsView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.blue)
+                    .background(viewModel.canSaveTicket ? Color.blue : Color.gray.opacity(0.4))
                     .foregroundStyle(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
+                .disabled(!viewModel.canSaveTicket)
                 
                 ticketsFilterSection
                 
@@ -244,11 +217,73 @@ struct MyTicketsView: View {
         }
     }
     
+    private var inputActionsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Aktualnie wpisane liczby możesz dodać jako kolejny zestaw albo od razu zapisać cały kupon.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            
+            Button {
+                viewModel.addCurrentLineToDraft()
+            } label: {
+                HStack {
+                    Image(systemName: "plus.square.fill")
+                    Text("Dodaj zestaw do kuponu")
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(viewModel.canAddCurrentLine ? Color(.secondarySystemBackground) : Color(.tertiarySystemBackground))
+                .foregroundStyle(viewModel.canAddCurrentLine ? .primary : .secondary)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+            }
+            .disabled(!viewModel.canAddCurrentLine)
+            
+            HStack {
+                Button {
+                    viewModel.generateRandomTicket()
+                } label: {
+                    HStack {
+                        Image(systemName: "dice.fill")
+                        Text("Wylosuj")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .foregroundStyle(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                
+                Button {
+                    viewModel.clearCurrentInputs()
+                } label: {
+                    HStack {
+                        Image(systemName: "xmark.circle.fill")
+                        Text("Wyczyść")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.red.opacity(0.1))
+                    .foregroundStyle(.red)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+            }
+        }
+    }
+    
     private var draftLinesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Zestawy na tym kuponie")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Zestawy na tym kuponie")
+                        .font(.headline)
+                    
+                    Text(viewModel.draftLinesCountText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 
                 Spacer()
                 

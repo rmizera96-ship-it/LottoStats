@@ -151,6 +151,26 @@ final class TicketViewModel: ObservableObject {
         filteredTickets.count
     }
     
+    var canAddCurrentLine: Bool {
+        hasAnyCurrentInput
+    }
+    
+    var canSaveTicket: Bool {
+        !draftLines.isEmpty || hasAnyCurrentInput
+    }
+    
+    var draftLinesCountText: String {
+        if draftLines.isEmpty {
+            return "Brak zestawów"
+        }
+        
+        if draftLines.count == 1 {
+            return "1 zestaw"
+        }
+        
+        return "\(draftLines.count) zestawy"
+    }
+    
     func checkResult(for ticket: LottoTicket) -> TicketCheckResult {
         ticketChecker.check(ticket: ticket)
     }
@@ -200,6 +220,12 @@ final class TicketViewModel: ObservableObject {
         errorMessage = nil
     }
     
+    func clearCurrentInputs() {
+        resetCurrentInputs()
+        errorMessage = nil
+        successMessage = nil
+    }
+    
     func saveTicket() {
         var linesToSave = draftLines
         
@@ -244,7 +270,7 @@ final class TicketViewModel: ObservableObject {
         selectedGameFilter = .all
         selectedStatusFilter = .all
         errorMessage = nil
-        successMessage = "Kupon z \(linesToSave.count) zestawem/zestawami został zapisany."
+        successMessage = "Kupon z \(linesToSave.count) zestawem/zestawami został zapisany na \(drawCountForMessage) losowanie/losowań."
     }
     
     func requestDelete(_ ticket: LottoTicket) {
