@@ -1,27 +1,7 @@
 import SwiftUI
 
 struct MyTicketsView: View {
-    @Binding var tickets: [LottoTicket]
-    
-    @State private var numberInputs = Array(repeating: "", count: 6)
-    @State private var includesPlus = false
-    @State private var selectedDrawCount = 1
-    @State private var errorMessage: String?
-    @State private var successMessage: String?
-    @State private var ticketToDelete: LottoTicket?
-    @State private var showDeleteAlert = false
-    
-    private let game: LottoGame = .lotto
-    private let repository = LottoRepository.shared
-    private let ticketChecker = TicketChecker()
-    private let drawCountOptions = [1, 2, 4, 8, 10]
-    
-    private var selectedDrawDates: [Date] {
-        repository.upcomingDrawDates(
-            for: game,
-            count: selectedDrawCount
-        )
-    }
+    @ObservedObject var viewModel: TicketViewModel
     
     var body: some View {
         ScrollView {
@@ -37,20 +17,20 @@ struct MyTicketsView: View {
                 
                 plusSection
                 
-                if let errorMessage {
+                if let errorMessage = viewModel.errorMessage {
                     Text(errorMessage)
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
                 
-                if let successMessage {
+                if let successMessage = viewModel.successMessage {
                     Text(successMessage)
                         .font(.caption)
                         .foregroundStyle(.green)
                 }
                 
                 Button {
-                    saveTicket()
+                    viewModel.saveTicket()
                 } label: {
                     HStack {
                         Image(systemName: "plus.circle.fill")
@@ -65,7 +45,7 @@ struct MyTicketsView: View {
                 }
                 
                 Button {
-                    generateRandomTicket()
+                    viewModel.generateRandomTicket()
                 } label: {
                     HStack {
                         Image(systemName: "dice.fill")
@@ -84,15 +64,13 @@ struct MyTicketsView: View {
             .padding()
         }
         .navigationTitle("Moje kupony")
-        .alert("Usunąć kupon?", isPresented: $showDeleteAlert) {
+        .alert("Usunąć kupon?", isPresented: $viewModel.showDeleteAlert) {
             Button("Usuń", role: .destructive) {
-                if let ticketToDelete {
-                    deleteTicket(ticketToDelete)
-                }
+                viewModel.confirmDelete()
             }
             
             Button("Anuluj", role: .cancel) {
-                ticketToDelete = nil
+                viewModel.cancelDelete()
             }
         } message: {
             Text("Tego działania nie można cofnąć.")
@@ -117,18 +95,18 @@ struct MyTicketsView: View {
                 Text("Kupon na losowanie")
                     .font(.headline)
                 
-                Text(game.displayName)
+                Text(viewModel.game.displayName)
                     .font(.title2)
                     .fontWeight(.bold)
                 
-                if let firstDate = selectedDrawDates.first,
-                   let lastDate = selectedDrawDates.last {
+                if let firstDate = viewModel.selectedDrawDates.first,
+                   let lastDate = viewModel.selectedDrawDates.last {
                     Text("\(firstDate.formatted(date: .long, time: .omitted)) - \(lastDate.formatted(date: .long, time: .omitted))")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 
-                Text("Liczba losowań: \(selectedDrawCount)")
+                Text("Liczba losowań: \(viewModel.selectedDrawCount)")
                     .font(.caption)
                     .fontWeight(.semibold)
                 
@@ -144,8 +122,8 @@ struct MyTicketsView: View {
             Text("Liczba kolejnych losowań")
                 .font(.headline)
             
-            Picker("Liczba losowań", selection: $selectedDrawCount) {
-                ForEach(drawCountOptions, id: \.self) { count in
+            Picker("Liczba losowań", selection: $viewModel.selectedDrawCount) {
+                ForEach(viewModel.drawCountOptions, id: \.self) { count in
                     Text("\(count)").tag(count)
                 }
             }
@@ -159,8 +137,8 @@ struct MyTicketsView: View {
                 .font(.headline)
             
             HStack {
-                ForEach(numberInputs.indices, id: \.self) { index in
-                    TextField("\(index + 1)", text: $numberInputs[index])
+                ForEach(viewModel.numberInputs.indices, id: \.self) { index in
+                    TextField("\(index + 1)", text: $viewModel.numberInputs[index])
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.center)
                         .font(.headline)
@@ -174,7 +152,7 @@ struct MyTicketsView: View {
     
     private var plusSection: some View {
         AppCard {
-            Toggle(isOn: $includesPlus) {
+            Toggle(isOn: $viewModel.includesPlus) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Lotto Plus")
                         .font(.headline)
@@ -192,97 +170,23 @@ struct MyTicketsView: View {
             Text("Zapisane kupony")
                 .font(.headline)
             
-            if tickets.isEmpty {
+            if viewModel.tickets.isEmpty {
                 AppCard {
                     Text("Nie masz jeszcze zapisanych kuponów.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             } else {
-                ForEach(tickets) { ticket in
+                ForEach(viewModel.tickets) { ticket in
                     TicketRow(
                         ticket: ticket,
-                        checkResult: ticketChecker.check(ticket: ticket)
+                        checkResult: viewModel.checkResult(for: ticket)
                     ) {
-                        requestDelete(ticket)
+                        viewModel.requestDelete(ticket)
                     }
                 }
             }
         }
-    }
-    
-    private func saveTicket() {
-        let numbers = numberInputs.compactMap { input in
-            Int(input.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        
-        guard numbers.count == 6 else {
-            errorMessage = "Wpisz dokładnie 6 liczb."
-            successMessage = nil
-            return
-        }
-        
-        guard numbers.allSatisfy({ number in
-            number >= 1 && number <= 49
-        }) else {
-            errorMessage = "Każda liczba musi być z zakresu od 1 do 49."
-            successMessage = nil
-            return
-        }
-        
-        guard Set(numbers).count == 6 else {
-            errorMessage = "Liczby nie mogą się powtarzać."
-            successMessage = nil
-            return
-        }
-        
-        guard let firstDrawDate = selectedDrawDates.first else {
-            errorMessage = "Nie udało się ustalić daty losowania."
-            successMessage = nil
-            return
-        }
-        
-        let sortedNumbers = numbers.sorted()
-        let drawDatesForTicket = selectedDrawDates
-        let drawCountForMessage = drawDatesForTicket.count
-        
-        let newTicket = LottoTicket(
-            gameName: game.displayName,
-            numbers: sortedNumbers,
-            drawDate: firstDrawDate,
-            drawDates: drawDatesForTicket,
-            includesPlus: includesPlus
-        )
-        
-        tickets.insert(newTicket, at: 0)
-        numberInputs = Array(repeating: "", count: 6)
-        includesPlus = false
-        selectedDrawCount = 1
-        errorMessage = nil
-        successMessage = "Kupon został dodany na \(drawCountForMessage) losowanie/losowań."
-    }
-    
-    private func generateRandomTicket() {
-        let randomNumbers = Array(1...49)
-            .shuffled()
-            .prefix(6)
-            .sorted()
-        
-        numberInputs = randomNumbers.map { String($0) }
-        errorMessage = nil
-        successMessage = nil
-    }
-    
-    private func requestDelete(_ ticket: LottoTicket) {
-        ticketToDelete = ticket
-        showDeleteAlert = true
-    }
-    
-    private func deleteTicket(_ ticket: LottoTicket) {
-        tickets.removeAll { $0.id == ticket.id }
-        ticketToDelete = nil
-        errorMessage = nil
-        successMessage = "Kupon został usunięty."
     }
 }
 
@@ -495,25 +399,5 @@ struct DrawCheckRow: View {
 }
 
 #Preview {
-    NavigationStack {
-        MyTicketsView(tickets: .constant([
-            LottoTicket(
-                gameName: "Lotto",
-                numbers: [3, 12, 19, 25, 34, 47],
-                drawDate: DrawResult.sample.drawDate,
-                drawDates: [
-                    DrawResult.samples[0].drawDate,
-                    DrawResult.samples[1].drawDate
-                ],
-                includesPlus: true
-            ),
-            LottoTicket(
-                gameName: "Lotto",
-                numbers: [1, 2, 3, 4, 5, 6],
-                drawDate: DrawResult.nextDrawDate,
-                drawDates: DrawResult.upcomingDrawDates(count: 4),
-                includesPlus: false
-            )
-        ]))
-    }
+    MyTicketsView(viewModel: TicketViewModel())
 }

@@ -1,12 +1,12 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var tickets: [LottoTicket] = []
+    @StateObject private var ticketViewModel = TicketViewModel()
     
     var body: some View {
         TabView {
             NavigationStack {
-                HomeView(tickets: tickets)
+                HomeView(tickets: ticketViewModel.tickets)
             }
             .tabItem {
                 Label("Start", systemImage: "house.fill")
@@ -27,17 +27,11 @@ struct ContentView: View {
             }
             
             NavigationStack {
-                MyTicketsView(tickets: $tickets)
+                MyTicketsView(viewModel: ticketViewModel)
             }
             .tabItem {
                 Label("Kupony", systemImage: "ticket.fill")
             }
-        }
-        .onAppear {
-            tickets = TicketStorage.load()
-        }
-        .onChange(of: tickets) { _, newTickets in
-            TicketStorage.save(newTickets)
         }
     }
 }
@@ -145,7 +139,7 @@ struct HomeView: View {
                         Text("Warstwa danych")
                             .font(.headline)
                         
-                        Text("Ten ekran korzysta już z LottoDataViewModel, czyli dane przechodzą przez ViewModel, Repository i Service.")
+                        Text("Ekran Start korzysta z LottoDataViewModel, a kupony są obsługiwane przez TicketViewModel.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
