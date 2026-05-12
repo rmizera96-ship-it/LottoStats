@@ -105,10 +105,9 @@ struct ContentView: View {
             .onAppear {
                 tickets = TicketStorage.load()
             }
-            .onChange(of: tickets) { newTickets in
+            .onChange(of: tickets) { _, newTickets in
                 TicketStorage.save(newTickets)
-            }
-        }
+            }        }
     }
     
     private var headerView: some View {

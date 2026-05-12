@@ -6,6 +6,8 @@ struct MyTicketsView: View {
     @State private var numberInputs = Array(repeating: "", count: 6)
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var ticketToDelete: LottoTicket?
+    @State private var showDeleteAlert = false
     
     private let gameName = "Lotto"
     private let selectedDrawDate = DrawResult.nextDrawDate
@@ -67,6 +69,19 @@ struct MyTicketsView: View {
             .padding()
         }
         .navigationTitle("Moje kupony")
+        .alert("Usunąć kupon?", isPresented: $showDeleteAlert) {
+            Button("Usuń", role: .destructive) {
+                if let ticketToDelete {
+                    deleteTicket(ticketToDelete)
+                }
+            }
+            
+            Button("Anuluj", role: .cancel) {
+                ticketToDelete = nil
+            }
+        } message: {
+            Text("Tego działania nie można cofnąć.")
+        }
     }
     
     private var headerView: some View {
@@ -138,7 +153,9 @@ struct MyTicketsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
             } else {
                 ForEach(tickets) { ticket in
-                    TicketRow(ticket: ticket)
+                    TicketRow(ticket: ticket) {
+                        requestDelete(ticket)
+                    }
                 }
             }
         }
@@ -193,10 +210,23 @@ struct MyTicketsView: View {
         errorMessage = nil
         successMessage = nil
     }
+    
+    private func requestDelete(_ ticket: LottoTicket) {
+        ticketToDelete = ticket
+        showDeleteAlert = true
+    }
+    
+    private func deleteTicket(_ ticket: LottoTicket) {
+        tickets.removeAll { $0.id == ticket.id }
+        ticketToDelete = nil
+        errorMessage = nil
+        successMessage = "Kupon został usunięty."
+    }
 }
 
 struct TicketRow: View {
     let ticket: LottoTicket
+    let onDelete: () -> Void
     
     private var matchingResult: DrawResult? {
         DrawResult.result(for: ticket.gameName, drawDate: ticket.drawDate)
@@ -261,6 +291,19 @@ struct TicketRow: View {
                 
                 Spacer()
                 
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.headline)
+                        .foregroundStyle(.red)
+                        .padding(8)
+                        .background(Color.red.opacity(0.1))
+                        .clipShape(Circle())
+                }
+            }
+            
+            HStack {
                 Text(statusText)
                     .font(.caption)
                     .fontWeight(.semibold)
@@ -268,6 +311,8 @@ struct TicketRow: View {
                     .padding(.vertical, 6)
                     .background(statusBackground)
                     .clipShape(Capsule())
+                
+                Spacer()
             }
             
             HStack {
