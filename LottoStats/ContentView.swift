@@ -66,11 +66,6 @@ struct HomeView: View {
         }
     }
     
-    private var mostFrequentNumberText: String {
-        let mostFrequent = NumberFrequency.calculate(from: viewModel.draws).first
-        return mostFrequent.map { "\($0.number)" } ?? "-"
-    }
-    
     private var totalTicketsCount: Int {
         tickets.count
     }
@@ -129,18 +124,6 @@ struct HomeView: View {
         }.count
     }
     
-    private var plusTicketsCount: Int {
-        tickets.filter { $0.includesPlus }.count
-    }
-    
-    private var eurojackpotTicketsCount: Int {
-        tickets.filter { $0.game == .eurojackpot }.count
-    }
-    
-    private var selectedGameTicketsCount: Int {
-        tickets.filter { $0.game == viewModel.selectedGame }.count
-    }
-    
     private var selectedGameActiveTicketsCount: Int {
         tickets.filter { ticket in
             guard ticket.game == viewModel.selectedGame else {
@@ -163,6 +146,10 @@ struct HomeView: View {
             .reduce(0) { partialResult, ticket in
                 partialResult + ticket.lines.count
             }
+    }
+    
+    private var selectedGameTicketsCount: Int {
+        tickets.filter { $0.game == viewModel.selectedGame }.count
     }
     
     private var nextDrawRelativeText: String {
@@ -222,6 +209,56 @@ struct HomeView: View {
         bestResultCalculator.calculate(from: tickets)
     }
     
+    private var bestHitTitleText: String {
+        guard let bestResult else {
+            return "-"
+        }
+        
+        if let extraHits = bestResult.extraHits {
+            if extraHits > 0 {
+                return "\(hitName(for: bestResult.mainHits)) + \(extraHits) euro"
+            } else {
+                return hitName(for: bestResult.mainHits)
+            }
+        }
+        
+        return hitName(for: bestResult.mainHits)
+    }
+    
+    private var bestHitSubtitleText: String {
+        guard let bestResult else {
+            return "Brak sprawdzonych kuponów"
+        }
+        
+        return "\(bestResult.gameName), zestaw \(bestResult.lineIndex + 1)"
+    }
+    
+    private var gameSummaries: [GameTicketSummary] {
+        games.map { game in
+            let gameTickets = tickets.filter { $0.game == game }
+            let linesCount = gameTickets.reduce(0) { partialResult, ticket in
+                partialResult + ticket.lines.count
+            }
+            
+            let activeCount = gameTickets.filter { ticket in
+                let status = ticketChecker.check(ticket: ticket).status
+                
+                if case .active = status {
+                    return true
+                }
+                
+                return false
+            }.count
+            
+            return GameTicketSummary(
+                game: game,
+                ticketsCount: gameTickets.count,
+                linesCount: linesCount,
+                activeTicketsCount: activeCount
+            )
+        }
+    }
+    
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -236,17 +273,19 @@ struct HomeView: View {
                 }
                 .pickerStyle(.segmented)
                 
-                nextDrawCard
+                latestDrawCard
                 
-                upcomingDrawsCard
+                nextDrawCard
                 
                 todayTicketsCard
                 
                 bestResultCard
                 
-                latestDrawCard
+                myTicketsSummaryCard
                 
-                dashboardSection
+                gameSummaryCard
+                
+                upcomingDrawsCard
                 
                 dataSourceSection
                 
@@ -283,9 +322,122 @@ struct HomeView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
             
-            Text("Sprawdzaj wyniki losowań, statystyki liczb i swoje kupony.")
+            Text("Wyniki losowań, statystyki liczb i Twoje kupony w jednym miejscu.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+        }
+    }
+    
+    private var latestDrawCard: some View {
+        AppCard {
+            if viewModel.isLoading {
+                HStack {
+                    ProgressView()
+                    
+                    Text("Ładowanie danych...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let latestDraw = viewModel.latestDraw {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Ostatnie losowanie")
+                                .font(.headline)
+                            
+                            Text(latestDraw.gameName)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                        }
+                        
+                        Spacer()
+                        
+                        Text(latestDraw.drawDate.formatted(date: .abbreviated, time: .omitted))
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(.tertiarySystemBackground))
+                            .clipShape(Capsule())
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Liczby główne")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                        
+                        HStack {
+                            ForEach(latestDraw.numbers, id: \.self) { number in
+                                NumberBall(number: number, style: .lotto)
+                            }
+                        }
+                    }
+                    
+                    if let extraNumbers = latestDraw.extraNumbers,
+                       !extraNumbers.isEmpty {
+                        Divider()
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Euroliczby")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                            
+                            HStack {
+                                ForEach(extraNumbers, id: \.self) { number in
+                                    NumberBall(number: number, style: .plus)
+                                }
+                            }
+                        }
+                    }
+                    
+                    if let plusNumbers = latestDraw.plusNumbers,
+                       viewModel.selectedGame.supportsPlus {
+                        Divider()
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Lotto Plus")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                            
+                            HStack {
+                                ForEach(plusNumbers, id: \.self) { number in
+                                    NumberBall(number: number, style: .plus)
+                                }
+                            }
+                        }
+                    }
+                    
+                    Divider()
+                    
+                    HStack {
+                        MetricTile(
+                            title: "Najwyższe trafienie",
+                            value: bestHitTitleText,
+                            subtitle: bestHitSubtitleText
+                        )
+                        
+                        Spacer()
+                        
+                        MetricTile(
+                            title: "Twoje kupony",
+                            value: "\(selectedGameTicketsCount)",
+                            subtitle: "Dla tej gry"
+                        )
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Brak danych")
+                        .font(.headline)
+                    
+                    Text(viewModel.errorMessage ?? "Nie udało się pobrać danych.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
     
@@ -326,80 +478,19 @@ struct HomeView: View {
                 Divider()
                 
                 HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(selectedGameActiveTicketsCount)")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        
-                        Text("Aktywne kupony")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    MetricTile(
+                        title: "Aktywne kupony",
+                        value: "\(selectedGameActiveTicketsCount)",
+                        subtitle: "Dla tej gry"
+                    )
                     
                     Spacer()
                     
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(selectedGameLinesCount)")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        
-                        Text("Zestawy liczb")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                
-                Text("Podsumowanie dotyczy aktualnie wybranej gry.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-    
-    private var upcomingDrawsCard: some View {
-        AppCard {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Najbliższe losowania")
-                        .font(.headline)
-                    
-                    Text("Szybki podgląd terminów dla wszystkich gier.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                
-                if upcomingDrawItems.isEmpty {
-                    Text("Brak dostępnych dat losowań.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(Array(upcomingDrawItems.enumerated()), id: \.element.id) { index, item in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.game.displayName)
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                
-                                Text(item.date.formatted(date: .long, time: .omitted))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            Text(item.relativeText)
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(relativeBackground(for: item.date))
-                                .clipShape(Capsule())
-                        }
-                        
-                        if index < upcomingDrawItems.count - 1 {
-                            Divider()
-                        }
-                    }
+                    MetricTile(
+                        title: "Zestawy liczb",
+                        value: "\(selectedGameLinesCount)",
+                        subtitle: "Dla tej gry"
+                    )
                 }
             }
         }
@@ -437,27 +528,19 @@ struct HomeView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(todayTickets.count)")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                            
-                            Text("Kupony")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        MetricTile(
+                            title: "Kupony",
+                            value: "\(todayTickets.count)",
+                            subtitle: "Na dziś"
+                        )
                         
                         Spacer()
                         
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(todayTicketsLinesCount)")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                            
-                            Text("Zestawy liczb")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        MetricTile(
+                            title: "Zestawy liczb",
+                            value: "\(todayTicketsLinesCount)",
+                            subtitle: "Na dziś"
+                        )
                     }
                     
                     Divider()
@@ -553,156 +636,163 @@ struct HomeView: View {
         }
     }
     
-    private var latestDrawCard: some View {
+    private var myTicketsSummaryCard: some View {
         AppCard {
-            if viewModel.isLoading {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Moje kupony")
+                        .font(.headline)
+                    
+                    Text("Krótkie podsumowanie zapisanych kuponów.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
                 HStack {
-                    ProgressView()
+                    MetricTile(
+                        title: "Kupony",
+                        value: "\(totalTicketsCount)",
+                        subtitle: "Wszystkie"
+                    )
                     
-                    Text("Ładowanie danych...")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    Spacer()
+                    
+                    MetricTile(
+                        title: "Zestawy",
+                        value: "\(totalLinesCount)",
+                        subtitle: "Łącznie"
+                    )
                 }
-            } else if let latestDraw = viewModel.latestDraw {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Ostatnie losowanie")
-                        .font(.headline)
+                
+                Divider()
+                
+                HStack {
+                    MetricTile(
+                        title: "Aktywne",
+                        value: "\(activeTicketsCount)",
+                        subtitle: "Przyszłe losowania"
+                    )
                     
-                    Text(latestDraw.gameName)
-                        .font(.title2)
-                        .fontWeight(.bold)
+                    Spacer()
                     
-                    Text(latestDraw.drawDate.formatted(date: .long, time: .omitted))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Liczby główne")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                        
-                        HStack {
-                            ForEach(latestDraw.numbers, id: \.self) { number in
-                                NumberBall(number: number, style: .lotto)
-                            }
-                        }
-                    }
-                    
-                    if let extraNumbers = latestDraw.extraNumbers,
-                       !extraNumbers.isEmpty {
-                        Divider()
-                        
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Euroliczby")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
-                            
-                            HStack {
-                                ForEach(extraNumbers, id: \.self) { number in
-                                    NumberBall(number: number, style: .plus)
-                                }
-                            }
-                        }
-                    }
-                    
-                    if let plusNumbers = latestDraw.plusNumbers,
-                       viewModel.selectedGame.supportsPlus {
-                        Divider()
-                        
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Lotto Plus")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
-                            
-                            HStack {
-                                ForEach(plusNumbers, id: \.self) { number in
-                                    NumberBall(number: number, style: .plus)
-                                }
-                            }
-                        }
-                    }
+                    MetricTile(
+                        title: "Sprawdzone",
+                        value: "\(checkedTicketsCount)",
+                        subtitle: "Pełne wyniki"
+                    )
                 }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Brak danych")
-                        .font(.headline)
+                
+                if partiallyCheckedTicketsCount > 0 || waitingTicketsCount > 0 {
+                    Divider()
                     
-                    Text(viewModel.errorMessage ?? "Nie udało się pobrać danych.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    HStack {
+                        MetricTile(
+                            title: "Częściowe",
+                            value: "\(partiallyCheckedTicketsCount)",
+                            subtitle: "Część wyników"
+                        )
+                        
+                        Spacer()
+                        
+                        MetricTile(
+                            title: "Oczekujące",
+                            value: "\(waitingTicketsCount)",
+                            subtitle: "Brak wyników"
+                        )
+                    }
                 }
             }
         }
     }
     
-    private var dashboardSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Podsumowanie")
-                .font(.headline)
-            
-            VStack(spacing: 12) {
-                InfoCard(
-                    title: "Najczęstsza liczba",
-                    value: mostFrequentNumberText,
-                    subtitle: "Na podstawie historii wybranej gry"
-                )
+    private var gameSummaryCard: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Według gier")
+                        .font(.headline)
+                    
+                    Text("Podział Twoich kuponów na gry.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 
-                InfoCard(
-                    title: "Kupony",
-                    value: "\(totalTicketsCount)",
-                    subtitle: "Liczba zapisanych kuponów"
-                )
+                ForEach(Array(gameSummaries.enumerated()), id: \.element.id) { index, summary in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(summary.game.displayName)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            
+                            Text("\(summary.ticketsCount) kuponów • \(summary.linesCount) zestawów")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Text("\(summary.activeTicketsCount) aktyw.")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.blue.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                    
+                    if index < gameSummaries.count - 1 {
+                        Divider()
+                    }
+                }
+            }
+        }
+    }
+    
+    private var upcomingDrawsCard: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Najbliższe losowania")
+                        .font(.headline)
+                    
+                    Text("Szybki podgląd terminów dla wszystkich gier.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 
-                InfoCard(
-                    title: "Zestawy liczb",
-                    value: "\(totalLinesCount)",
-                    subtitle: "Łączna liczba zestawów na kuponach"
-                )
-                
-                InfoCard(
-                    title: "Kupony dla \(viewModel.selectedGame.displayName)",
-                    value: "\(selectedGameTicketsCount)",
-                    subtitle: "Zapisane kupony dla aktualnie wybranej gry"
-                )
-                
-                InfoCard(
-                    title: "Aktywne kupony",
-                    value: "\(activeTicketsCount)",
-                    subtitle: "Kupony na przyszłe losowania"
-                )
-                
-                InfoCard(
-                    title: "Sprawdzone kupony",
-                    value: "\(checkedTicketsCount)",
-                    subtitle: "Kupony, dla których mamy wszystkie wyniki"
-                )
-                
-                InfoCard(
-                    title: "Częściowo sprawdzone",
-                    value: "\(partiallyCheckedTicketsCount)",
-                    subtitle: "Kupony z częścią wyników"
-                )
-                
-                InfoCard(
-                    title: "Oczekujące na wyniki",
-                    value: "\(waitingTicketsCount)",
-                    subtitle: "Kupony po dacie losowania bez wyniku w aplikacji"
-                )
-                
-                InfoCard(
-                    title: "Kupony z Lotto Plus",
-                    value: "\(plusTicketsCount)",
-                    subtitle: "Kupony z zaznaczoną opcją Plus"
-                )
-                
-                InfoCard(
-                    title: "Kupony Eurojackpot",
-                    value: "\(eurojackpotTicketsCount)",
-                    subtitle: "Kupony z euroliczbami"
-                )
+                if upcomingDrawItems.isEmpty {
+                    Text("Brak dostępnych dat losowań.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(upcomingDrawItems.enumerated()), id: \.element.id) { index, item in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.game.displayName)
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                
+                                Text(item.date.formatted(date: .long, time: .omitted))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Text(item.relativeText)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(relativeBackground(for: item.date))
+                                .clipShape(Capsule())
+                        }
+                        
+                        if index < upcomingDrawItems.count - 1 {
+                            Divider()
+                        }
+                    }
+                }
             }
         }
     }
@@ -721,6 +811,27 @@ struct HomeView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+    
+    private func hitName(for count: Int) -> String {
+        switch count {
+        case 0:
+            return "Brak trafień"
+        case 1:
+            return "Jedynka"
+        case 2:
+            return "Dwójka"
+        case 3:
+            return "Trójka"
+        case 4:
+            return "Czwórka"
+        case 5:
+            return "Piątka"
+        case 6:
+            return "Szóstka"
+        default:
+            return "\(count) trafień"
         }
     }
     
@@ -757,6 +868,36 @@ struct HomeView: View {
             return Color.blue.opacity(0.15)
         }
     }
+}
+
+private struct MetricTile: View {
+    let title: String
+    let value: String
+    let subtitle: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.title2)
+                .fontWeight(.bold)
+            
+            Text(title)
+                .font(.caption)
+                .fontWeight(.semibold)
+            
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct GameTicketSummary: Identifiable {
+    let id = UUID()
+    let game: LottoGame
+    let ticketsCount: Int
+    let linesCount: Int
+    let activeTicketsCount: Int
 }
 
 private struct UpcomingDrawItem: Identifiable {
