@@ -4,6 +4,7 @@ struct MyTicketsView: View {
     @Binding var tickets: [LottoTicket]
     
     @State private var numberInputs = Array(repeating: "", count: 6)
+    @State private var includesPlus = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
     @State private var ticketToDelete: LottoTicket?
@@ -21,6 +22,8 @@ struct MyTicketsView: View {
                 selectedDrawSection
                 
                 inputSection
+                
+                plusSection
                 
                 if let errorMessage {
                     Text(errorMessage)
@@ -138,6 +141,24 @@ struct MyTicketsView: View {
         }
     }
     
+    private var plusSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: $includesPlus) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Lotto Plus")
+                        .font(.headline)
+                    
+                    Text("Te same liczby wezmą udział także w osobnym losowaniu Plus.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+    
     private var ticketsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Zapisane kupony")
@@ -191,11 +212,13 @@ struct MyTicketsView: View {
         let newTicket = LottoTicket(
             gameName: gameName,
             numbers: sortedNumbers,
-            drawDate: selectedDrawDate
+            drawDate: selectedDrawDate,
+            includesPlus: includesPlus
         )
         
         tickets.insert(newTicket, at: 0)
         numberInputs = Array(repeating: "", count: 6)
+        includesPlus = false
         errorMessage = nil
         successMessage = "Kupon został dodany na konkretne losowanie."
     }
@@ -232,12 +255,21 @@ struct TicketRow: View {
         DrawResult.result(for: ticket.gameName, drawDate: ticket.drawDate)
     }
     
-    private var matchedNumbers: [Int] {
+    private var lottoMatchedNumbers: [Int] {
         guard let matchingResult else {
             return []
         }
         
         let winningNumbers = Set(matchingResult.numbers)
+        return ticket.numbers.filter { winningNumbers.contains($0) }
+    }
+    
+    private var plusMatchedNumbers: [Int] {
+        guard let plusNumbers = matchingResult?.plusNumbers else {
+            return []
+        }
+        
+        let winningNumbers = Set(plusNumbers)
         return ticket.numbers.filter { winningNumbers.contains($0) }
     }
     
@@ -256,52 +288,29 @@ struct TicketRow: View {
         }
     }
     
-    private var resultText: String {
+    private var lottoResultText: String {
         guard matchingResult != nil else {
             return "Kupon nie został jeszcze sprawdzony"
         }
         
-        switch matchedNumbers.count {
-        case 0:
-            return "Brak trafień"
-        case 1:
-            return "1 trafienie"
-        case 2...4:
-            return "\(matchedNumbers.count) trafienia"
-        default:
-            return "\(matchedNumbers.count) trafień"
+        return resultText(for: lottoMatchedNumbers.count)
+    }
+    
+    private var plusResultText: String {
+        guard ticket.includesPlus else {
+            return "Lotto Plus nie było zaznaczone"
         }
+        
+        guard matchingResult?.plusNumbers != nil else {
+            return "Brak wyniku Lotto Plus dla tego losowania"
+        }
+        
+        return resultText(for: plusMatchedNumbers.count)
     }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(ticket.gameName)
-                        .font(.headline)
-                    
-                    Text("Losowanie: \(ticket.drawDate.formatted(date: .long, time: .omitted))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    
-                    Text("Dodano: \(ticket.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                
-                Spacer()
-                
-                Button(role: .destructive) {
-                    onDelete()
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.headline)
-                        .foregroundStyle(.red)
-                        .padding(8)
-                        .background(Color.red.opacity(0.1))
-                        .clipShape(Circle())
-                }
-            }
+            topSection
             
             HStack {
                 Text(statusText)
@@ -312,34 +321,98 @@ struct TicketRow: View {
                     .background(statusBackground)
                     .clipShape(Capsule())
                 
+                if ticket.includesPlus {
+                    Text("Plus")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.purple.opacity(0.2))
+                        .clipShape(Capsule())
+                }
+                
                 Spacer()
             }
             
-            HStack {
-                ForEach(ticket.numbers, id: \.self) { number in
-                    Text("\(number)")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .frame(width: 34, height: 34)
-                        .background(numberBackground(number))
-                        .clipShape(Circle())
-                }
-            }
+            numbersSection
             
-            Text(resultText)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-            
-            if matchingResult != nil {
-                Text("Trafione: \(matchedNumbers.isEmpty ? "brak" : matchedNumbers.map(String.init).joined(separator: ", "))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            resultSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+    
+    private var topSection: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(ticket.gameName)
+                    .font(.headline)
+                
+                Text("Losowanie: \(ticket.drawDate.formatted(date: .long, time: .omitted))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                Text("Dodano: \(ticket.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            Spacer()
+            
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.headline)
+                    .foregroundStyle(.red)
+                    .padding(8)
+                    .background(Color.red.opacity(0.1))
+                    .clipShape(Circle())
+            }
+        }
+    }
+    
+    private var numbersSection: some View {
+        HStack {
+            ForEach(ticket.numbers, id: \.self) { number in
+                Text("\(number)")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .frame(width: 34, height: 34)
+                    .background(numberBackground(number))
+                    .clipShape(Circle())
+            }
+        }
+    }
+    
+    private var resultSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Lotto: \(lottoResultText)")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            
+            if matchingResult != nil {
+                Text("Trafione Lotto: \(lottoMatchedNumbers.isEmpty ? "brak" : lottoMatchedNumbers.map(String.init).joined(separator: ", "))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            if ticket.includesPlus {
+                Divider()
+                
+                Text("Lotto Plus: \(plusResultText)")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                
+                if matchingResult?.plusNumbers != nil {
+                    Text("Trafione Plus: \(plusMatchedNumbers.isEmpty ? "brak" : plusMatchedNumbers.map(String.init).joined(separator: ", "))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
     
     private var statusBackground: Color {
@@ -362,10 +435,23 @@ struct TicketRow: View {
             return Color.blue.opacity(0.15)
         }
         
-        if matchedNumbers.contains(number) {
+        if lottoMatchedNumbers.contains(number) || plusMatchedNumbers.contains(number) {
             return Color.green.opacity(0.3)
         } else {
             return Color.gray.opacity(0.15)
+        }
+    }
+    
+    private func resultText(for count: Int) -> String {
+        switch count {
+        case 0:
+            return "brak trafień"
+        case 1:
+            return "1 trafienie"
+        case 2...4:
+            return "\(count) trafienia"
+        default:
+            return "\(count) trafień"
         }
     }
 }
@@ -376,12 +462,14 @@ struct TicketRow: View {
             LottoTicket(
                 gameName: "Lotto",
                 numbers: [3, 12, 19, 25, 34, 47],
-                drawDate: DrawResult.sample.drawDate
+                drawDate: DrawResult.sample.drawDate,
+                includesPlus: true
             ),
             LottoTicket(
                 gameName: "Lotto",
                 numbers: [1, 2, 3, 4, 5, 6],
-                drawDate: DrawResult.nextDrawDate
+                drawDate: DrawResult.nextDrawDate,
+                includesPlus: false
             )
         ]))
     }
