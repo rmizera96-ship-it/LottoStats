@@ -6,6 +6,7 @@ final class LottoDataViewModel: ObservableObject {
     @Published private(set) var selectedGame: LottoGame = .lotto
     @Published private(set) var draws: [DrawResult] = []
     @Published private(set) var latestDraw: DrawResult?
+    @Published private(set) var upcomingDrawDates: [Date] = []
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     
@@ -13,6 +14,10 @@ final class LottoDataViewModel: ObservableObject {
     
     var dataSourceName: String {
         repository.dataSourceName
+    }
+    
+    var nextDrawDate: Date? {
+        upcomingDrawDates.first
     }
     
     init() {
@@ -24,7 +29,7 @@ final class LottoDataViewModel: ObservableObject {
     }
     
     func loadInitialData() async {
-        if draws.isEmpty {
+        if draws.isEmpty && upcomingDrawDates.isEmpty {
             await loadData(for: selectedGame)
         }
     }
@@ -44,8 +49,14 @@ final class LottoDataViewModel: ObservableObject {
         
         do {
             let fetchedDraws = try await repository.fetchDraws(for: game)
+            let fetchedUpcomingDrawDates = try await repository.fetchUpcomingDrawDates(
+                for: game,
+                count: 10
+            )
+            
             draws = fetchedDraws
             latestDraw = fetchedDraws.first
+            upcomingDrawDates = fetchedUpcomingDrawDates
             
             if fetchedDraws.isEmpty {
                 errorMessage = "Brak danych dla gry \(game.displayName)."
@@ -53,6 +64,7 @@ final class LottoDataViewModel: ObservableObject {
         } catch {
             draws = []
             latestDraw = nil
+            upcomingDrawDates = []
             errorMessage = error.localizedDescription
         }
         

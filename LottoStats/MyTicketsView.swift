@@ -361,11 +361,32 @@ struct MyTicketsView: View {
                 }
             } else {
                 ForEach(viewModel.filteredTickets) { ticket in
-                    TicketRow(
-                        ticket: ticket,
-                        checkResult: viewModel.checkResult(for: ticket)
-                    ) {
-                        viewModel.requestDelete(ticket)
+                    VStack(spacing: 8) {
+                        TicketRow(
+                            ticket: ticket,
+                            checkResult: viewModel.checkResult(for: ticket)
+                        ) {
+                            viewModel.requestDelete(ticket)
+                        }
+                        
+                        NavigationLink {
+                            TicketDetailView(
+                                ticket: ticket,
+                                checkResult: viewModel.checkResult(for: ticket)
+                            )
+                        } label: {
+                            HStack {
+                                Image(systemName: "doc.text.magnifyingglass")
+                                Text("Pokaż szczegóły")
+                                    .fontWeight(.semibold)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                            }
+                            .padding()
+                            .background(Color(.secondarySystemBackground))
+                            .foregroundStyle(.primary)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                        }
                     }
                 }
             }
