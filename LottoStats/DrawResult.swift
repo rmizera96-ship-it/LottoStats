@@ -23,17 +23,22 @@ extension DrawResult {
         DrawResult(
             gameName: "Lotto",
             drawDate: Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 8)) ?? Date(),
-            numbers: [5, 11, 18, 22, 36, 41]
+            numbers: [5, 12, 18, 25, 36, 41]
         ),
         DrawResult(
             gameName: "Lotto",
             drawDate: Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 6)) ?? Date(),
-            numbers: [1, 9, 17, 29, 33, 48]
+            numbers: [3, 9, 17, 25, 33, 48]
         ),
         DrawResult(
             gameName: "Lotto",
             drawDate: Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 3)) ?? Date(),
-            numbers: [7, 14, 21, 28, 35, 42]
+            numbers: [7, 12, 21, 28, 34, 42]
+        ),
+        DrawResult(
+            gameName: "Lotto",
+            drawDate: Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 1)) ?? Date(),
+            numbers: [3, 11, 19, 25, 31, 47]
         )
     ]
 }

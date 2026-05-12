@@ -6,6 +6,11 @@ struct ContentView: View {
     let games = ["Lotto", "Mini Lotto", "Eurojackpot"]
     let latestDraw = DrawResult.sample
     
+    private var mostFrequentNumberText: String {
+        let mostFrequent = NumberFrequency.calculate(from: DrawResult.samples).first
+        return mostFrequent.map { "\($0.number)" } ?? "-"
+    }
+    
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -25,24 +30,26 @@ struct ContentView: View {
                     NavigationLink {
                         HistoryView()
                     } label: {
-                        HStack {
-                            Image(systemName: "clock.arrow.circlepath")
-                            Text("Zobacz historię losowań")
-                                .fontWeight(.semibold)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                        }
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        MenuButton(
+                            icon: "clock.arrow.circlepath",
+                            title: "Zobacz historię losowań"
+                        )
+                    }
+                    
+                    NavigationLink {
+                        StatisticsView()
+                    } label: {
+                        MenuButton(
+                            icon: "chart.bar.xaxis",
+                            title: "Zobacz statystyki liczb"
+                        )
                     }
                     
                     VStack(spacing: 12) {
                         InfoCard(
-                            title: "Najczęstsze liczby",
-                            value: "-",
-                            subtitle: "Tutaj pokażemy statystyki"
+                            title: "Najczęstsza liczba",
+                            value: mostFrequentNumberText,
+                            subtitle: "Na podstawie historii losowań"
                         )
                         
                         InfoCard(
@@ -98,6 +105,25 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+struct MenuButton: View {
+    let icon: String
+    let title: String
+    
+    var body: some View {
+        HStack {
+            Image(systemName: icon)
+            Text(title)
+                .fontWeight(.semibold)
+            Spacer()
+            Image(systemName: "chevron.right")
+        }
+        .padding()
+        .background(Color.blue)
+        .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
