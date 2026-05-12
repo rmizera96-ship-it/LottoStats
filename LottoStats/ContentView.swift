@@ -218,9 +218,34 @@ struct HomeView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     
-                    HStack {
-                        ForEach(latestDraw.numbers, id: \.self) { number in
-                            NumberBall(number: number, style: .lotto)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Liczby główne")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                        
+                        HStack {
+                            ForEach(latestDraw.numbers, id: \.self) { number in
+                                NumberBall(number: number, style: .lotto)
+                            }
+                        }
+                    }
+                    
+                    if let extraNumbers = latestDraw.extraNumbers,
+                       !extraNumbers.isEmpty {
+                        Divider()
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Euroliczby")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                            
+                            HStack {
+                                ForEach(extraNumbers, id: \.self) { number in
+                                    NumberBall(number: number, style: .plus)
+                                }
+                            }
                         }
                     }
                     
@@ -228,12 +253,16 @@ struct HomeView: View {
                        viewModel.selectedGame.supportsPlus {
                         Divider()
                         
-                        Text("Lotto Plus")
-                            .font(.headline)
-                        
-                        HStack {
-                            ForEach(plusNumbers, id: \.self) { number in
-                                NumberBall(number: number, style: .plus)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Lotto Plus")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                            
+                            HStack {
+                                ForEach(plusNumbers, id: \.self) { number in
+                                    NumberBall(number: number, style: .plus)
+                                }
                             }
                         }
                     }

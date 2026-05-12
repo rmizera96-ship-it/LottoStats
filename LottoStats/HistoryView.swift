@@ -106,7 +106,7 @@ struct DrawHistoryRow: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(draw.gameName)
+                    Text("Liczby główne")
                         .font(.caption)
                         .fontWeight(.semibold)
                         .foregroundStyle(.secondary)
@@ -114,6 +114,24 @@ struct DrawHistoryRow: View {
                     HStack {
                         ForEach(draw.numbers, id: \.self) { number in
                             NumberBall(number: number, style: .lotto, size: 34)
+                        }
+                    }
+                }
+                
+                if let extraNumbers = draw.extraNumbers,
+                   !extraNumbers.isEmpty {
+                    Divider()
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Euroliczby")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                        
+                        HStack {
+                            ForEach(extraNumbers, id: \.self) { number in
+                                NumberBall(number: number, style: .plus, size: 34)
+                            }
                         }
                     }
                 }

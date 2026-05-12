@@ -10,7 +10,11 @@ struct NumberFrequency: Identifiable {
     
     static func calculate(from draws: [DrawResult]) -> [NumberFrequency] {
         let allNumbers = draws.flatMap { $0.numbers }
-        let groupedNumbers = Dictionary(grouping: allNumbers, by: { $0 })
+        return calculate(fromNumbers: allNumbers)
+    }
+    
+    static func calculate(fromNumbers numbers: [Int]) -> [NumberFrequency] {
+        let groupedNumbers = Dictionary(grouping: numbers, by: { $0 })
         
         return groupedNumbers
             .map { NumberFrequency(number: $0.key, count: $0.value.count) }
@@ -39,27 +43,31 @@ struct StatisticsView: View {
         }
     }
     
-    private var frequencies: [NumberFrequency] {
+    private var mainFrequencies: [NumberFrequency] {
         NumberFrequency.calculate(from: viewModel.draws)
     }
     
-    private var maxCount: Int {
-        frequencies.map { $0.count }.max() ?? 1
+    private var plusFrequencies: [NumberFrequency] {
+        let plusNumbers = viewModel.draws.flatMap { draw in
+            draw.plusNumbers ?? []
+        }
+        
+        return NumberFrequency.calculate(fromNumbers: plusNumbers)
+    }
+    
+    private var extraFrequencies: [NumberFrequency] {
+        let extraNumbers = viewModel.draws.flatMap { draw in
+            draw.extraNumbers ?? []
+        }
+        
+        return NumberFrequency.calculate(fromNumbers: extraNumbers)
     }
     
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Najczęstsze liczby")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    
-                    Text("Ranking na podstawie historii wybranej gry.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+                headerView
                 
                 Picker("Gra", selection: selectedGameBinding) {
                     ForEach(repository.availableGames()) { game in
@@ -69,53 +77,36 @@ struct StatisticsView: View {
                 }
                 .pickerStyle(.segmented)
                 
-                AppCard {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Źródło danych")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            
-                            Text(viewModel.dataSourceName)
-                                .font(.headline)
-                        }
-                        
-                        Spacer()
-                        
-                        Button {
-                            Task {
-                                await viewModel.refresh()
-                            }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.headline)
-                        }
-                    }
-                }
+                dataSourceCard
                 
                 if viewModel.isLoading {
-                    AppCard {
-                        HStack {
-                            ProgressView()
-                            Text("Ładowanie statystyk...")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } else if frequencies.isEmpty {
-                    AppCard {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Brak statystyk")
-                                .font(.headline)
-                            
-                            Text(viewModel.errorMessage ?? "Dla tej gry nie mamy jeszcze danych.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    loadingCard
+                } else if viewModel.draws.isEmpty {
+                    emptyCard
                 } else {
-                    ForEach(frequencies) { item in
-                        frequencyRow(item)
+                    frequencySection(
+                        title: "Najczęstsze liczby główne",
+                        subtitle: "Ranking podstawowych liczb dla gry \(viewModel.selectedGame.displayName).",
+                        frequencies: mainFrequencies,
+                        style: .lotto
+                    )
+                    
+                    if viewModel.selectedGame.supportsPlus && !plusFrequencies.isEmpty {
+                        frequencySection(
+                            title: "Najczęstsze liczby Lotto Plus",
+                            subtitle: "Ranking liczb z dodatkowego losowania Lotto Plus.",
+                            frequencies: plusFrequencies,
+                            style: .plus
+                        )
+                    }
+                    
+                    if !extraFrequencies.isEmpty {
+                        frequencySection(
+                            title: "Najczęstsze euroliczby",
+                            subtitle: "Ranking dodatkowych euroliczb dla Eurojackpot.",
+                            frequencies: extraFrequencies,
+                            style: .plus
+                        )
                     }
                 }
             }
@@ -127,11 +118,103 @@ struct StatisticsView: View {
         }
     }
     
-    private func frequencyRow(_ item: NumberFrequency) -> some View {
+    private var headerView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Najczęstsze liczby")
+                .font(.title2)
+                .fontWeight(.bold)
+            
+            Text("Ranking na podstawie historii wybranej gry.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+    
+    private var dataSourceCard: some View {
+        AppCard {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Źródło danych")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    Text(viewModel.dataSourceName)
+                        .font(.headline)
+                }
+                
+                Spacer()
+                
+                Button {
+                    Task {
+                        await viewModel.refresh()
+                    }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.headline)
+                }
+            }
+        }
+    }
+    
+    private var loadingCard: some View {
+        AppCard {
+            HStack {
+                ProgressView()
+                Text("Ładowanie statystyk...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+    
+    private var emptyCard: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Brak statystyk")
+                    .font(.headline)
+                
+                Text(viewModel.errorMessage ?? "Dla tej gry nie mamy jeszcze danych.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+    
+    private func frequencySection(
+        title: String,
+        subtitle: String,
+        frequencies: [NumberFrequency],
+        style: NumberBallStyle
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            ForEach(frequencies) { item in
+                frequencyRow(
+                    item,
+                    maxCount: maxCount(for: frequencies),
+                    style: style
+                )
+            }
+        }
+    }
+    
+    private func frequencyRow(
+        _ item: NumberFrequency,
+        maxCount: Int,
+        style: NumberBallStyle
+    ) -> some View {
         AppCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    NumberBall(number: item.number, style: .lotto, size: 42)
+                    NumberBall(number: item.number, style: style, size: 42)
                     
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Liczba \(item.number)")
@@ -151,6 +234,10 @@ struct StatisticsView: View {
                 ProgressView(value: Double(item.count), total: Double(maxCount))
             }
         }
+    }
+    
+    private func maxCount(for frequencies: [NumberFrequency]) -> Int {
+        frequencies.map { $0.count }.max() ?? 1
     }
 }
 

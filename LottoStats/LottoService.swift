@@ -126,8 +126,6 @@ struct OpenLottoService: LottoService {
             return []
         }
         
-        // Oficjalny endpoint zwraca najbliższe losowanie.
-        // Na razie dla kuponów wielolosowaniowych zostawiamy dalsze daty z danych testowych.
         let fallbackDates = DrawResult.upcomingDrawDates(for: game, count: count)
         let remainingDates = fallbackDates.filter { date in
             !Calendar.current.isDate(date, inSameDayAs: nextDraw)
@@ -211,6 +209,14 @@ struct OpenLottoService: LottoService {
                     return date
                 }
                 
+                if let date = DateFormatter.lottoDateTime.date(from: dateString) {
+                    return date
+                }
+                
+                if let date = DateFormatter.lottoDateOnly.date(from: dateString) {
+                    return date
+                }
+                
                 throw DecodingError.dataCorruptedError(
                     in: container,
                     debugDescription: "Niepoprawny format daty: \(dateString)"
@@ -235,17 +241,36 @@ struct OpenLottoService: LottoService {
         
         let drawDate = firstResult?.drawDate ?? apiDraw.drawDate
         let numbers = firstResult?.resultsJson ?? []
+        let specialResults = firstResult?.specialResults ?? []
         
         guard let drawDate, !numbers.isEmpty else {
             return nil
         }
         
-        return DrawResult(
-            game: game,
-            drawDate: drawDate,
-            numbers: numbers,
-            plusNumbers: firstResult?.specialResults
-        )
+        switch game {
+        case .eurojackpot:
+            return DrawResult(
+                game: game,
+                drawDate: drawDate,
+                numbers: numbers,
+                extraNumbers: specialResults
+            )
+            
+        case .lotto:
+            return DrawResult(
+                game: game,
+                drawDate: drawDate,
+                numbers: numbers,
+                plusNumbers: specialResults.isEmpty ? nil : specialResults
+            )
+            
+        case .miniLotto:
+            return DrawResult(
+                game: game,
+                drawDate: drawDate,
+                numbers: numbers
+            )
+        }
     }
     
     private func mergeLottoWithPlus(
@@ -264,7 +289,8 @@ struct OpenLottoService: LottoService {
                 game: lottoDraw.game,
                 drawDate: lottoDraw.drawDate,
                 numbers: lottoDraw.numbers,
-                plusNumbers: matchingPlusDraw?.numbers ?? lottoDraw.plusNumbers
+                plusNumbers: matchingPlusDraw?.numbers ?? lottoDraw.plusNumbers,
+                extraNumbers: lottoDraw.extraNumbers
             )
         }
     }
@@ -314,6 +340,22 @@ private extension ISO8601DateFormatter {
             .withInternetDateTime,
             .withFractionalSeconds
         ]
+        return formatter
+    }()
+}
+
+private extension DateFormatter {
+    static let lottoDateTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return formatter
+    }()
+    
+    static let lottoDateOnly: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
 }
