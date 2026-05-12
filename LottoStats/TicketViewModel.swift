@@ -5,6 +5,23 @@ import Combine
 final class TicketViewModel: ObservableObject {
     @Published private(set) var tickets: [LottoTicket] = []
     
+    @Published var selectedGame: LottoGame = .lotto {
+        didSet {
+            if !currentRules.supportsPlus {
+                includesPlus = false
+            }
+            
+            numberInputs = Array(
+                repeating: "",
+                count: currentRules.mainNumbersCount
+            )
+            
+            selectedDrawCount = 1
+            errorMessage = nil
+            successMessage = nil
+        }
+    }
+    
     @Published var numberInputs = Array(repeating: "", count: 6)
     @Published var includesPlus = false
     @Published var selectedDrawCount = 1
@@ -13,7 +30,6 @@ final class TicketViewModel: ObservableObject {
     @Published var ticketToDelete: LottoTicket?
     @Published var showDeleteAlert = false
     
-    let game: LottoGame = .lotto
     let drawCountOptions = [1, 2, 4, 8, 10]
     
     private let repository: LottoRepository
@@ -28,9 +44,17 @@ final class TicketViewModel: ObservableObject {
         loadTickets()
     }
     
+    var availableGamesForTickets: [LottoGame] {
+        LottoGame.allCases
+    }
+    
+    var currentRules: GameRules {
+        GameRules.rules(for: selectedGame)
+    }
+    
     var selectedDrawDates: [Date] {
         repository.upcomingDrawDates(
-            for: game,
+            for: selectedGame,
             count: selectedDrawCount
         )
     }
@@ -40,9 +64,15 @@ final class TicketViewModel: ObservableObject {
     }
     
     func generateRandomTicket() {
-        let randomNumbers = Array(1...49)
+        guard currentRules.supportsTicketsInCurrentVersion else {
+            errorMessage = "Gra \(selectedGame.displayName) wymaga dodatkowych liczb i zostanie dodana później."
+            successMessage = nil
+            return
+        }
+        
+        let randomNumbers = Array(currentRules.mainNumberRange)
             .shuffled()
-            .prefix(6)
+            .prefix(currentRules.mainNumbersCount)
             .sorted()
         
         numberInputs = randomNumbers.map { String($0) }
@@ -51,25 +81,31 @@ final class TicketViewModel: ObservableObject {
     }
     
     func saveTicket() {
+        guard currentRules.supportsTicketsInCurrentVersion else {
+            errorMessage = "Dodawanie kuponów dla gry \(selectedGame.displayName) dodamy w kolejnym etapie."
+            successMessage = nil
+            return
+        }
+        
         let numbers = numberInputs.compactMap { input in
             Int(input.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         
-        guard numbers.count == 6 else {
-            errorMessage = "Wpisz dokładnie 6 liczb."
+        guard numbers.count == currentRules.mainNumbersCount else {
+            errorMessage = "Wpisz dokładnie \(currentRules.mainNumbersCount) liczb."
             successMessage = nil
             return
         }
         
         guard numbers.allSatisfy({ number in
-            number >= 1 && number <= 49
+            currentRules.mainNumberRange.contains(number)
         }) else {
-            errorMessage = "Każda liczba musi być z zakresu od 1 do 49."
+            errorMessage = "Każda liczba musi być z zakresu \(currentRules.mainNumberRange.lowerBound)-\(currentRules.mainNumberRange.upperBound)."
             successMessage = nil
             return
         }
         
-        guard Set(numbers).count == 6 else {
+        guard Set(numbers).count == currentRules.mainNumbersCount else {
             errorMessage = "Liczby nie mogą się powtarzać."
             successMessage = nil
             return
@@ -86,17 +122,20 @@ final class TicketViewModel: ObservableObject {
         let drawCountForMessage = drawDatesForTicket.count
         
         let newTicket = LottoTicket(
-            gameName: game.displayName,
+            gameName: selectedGame.displayName,
             numbers: sortedNumbers,
             drawDate: firstDrawDate,
             drawDates: drawDatesForTicket,
-            includesPlus: includesPlus
+            includesPlus: currentRules.supportsPlus ? includesPlus : false
         )
         
         tickets.insert(newTicket, at: 0)
         saveTickets()
         
-        numberInputs = Array(repeating: "", count: 6)
+        numberInputs = Array(
+            repeating: "",
+            count: currentRules.mainNumbersCount
+        )
         includesPlus = false
         selectedDrawCount = 1
         errorMessage = nil

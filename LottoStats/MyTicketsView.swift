@@ -9,13 +9,21 @@ struct MyTicketsView: View {
                 
                 headerView
                 
+                gamePickerSection
+                
                 selectedDrawSection
                 
                 drawCountSection
                 
                 inputSection
                 
-                plusSection
+                if viewModel.currentRules.supportsPlus {
+                    plusSection
+                }
+                
+                if !viewModel.currentRules.supportsTicketsInCurrentVersion {
+                    unsupportedGameSection
+                }
                 
                 if let errorMessage = viewModel.errorMessage {
                     Text(errorMessage)
@@ -39,10 +47,11 @@ struct MyTicketsView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.blue)
+                    .background(viewModel.currentRules.supportsTicketsInCurrentVersion ? Color.blue : Color.gray.opacity(0.4))
                     .foregroundStyle(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
+                .disabled(!viewModel.currentRules.supportsTicketsInCurrentVersion)
                 
                 Button {
                     viewModel.generateRandomTicket()
@@ -83,8 +92,27 @@ struct MyTicketsView: View {
                 .font(.title2)
                 .fontWeight(.bold)
             
-            Text("Kupon może być przypisany do jednego albo kilku kolejnych losowań.")
+            Text("Wybierz grę, wpisz liczby i przypisz kupon do jednego albo kilku kolejnych losowań.")
                 .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+    
+    private var gamePickerSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Gra")
+                .font(.headline)
+            
+            Picker("Gra", selection: $viewModel.selectedGame) {
+                ForEach(viewModel.availableGamesForTickets) { game in
+                    Text(game.displayName)
+                        .tag(game)
+                }
+            }
+            .pickerStyle(.segmented)
+            
+            Text("Zasady: \(viewModel.currentRules.description)")
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
     }
@@ -95,13 +123,17 @@ struct MyTicketsView: View {
                 Text("Kupon na losowanie")
                     .font(.headline)
                 
-                Text(viewModel.game.displayName)
+                Text(viewModel.selectedGame.displayName)
                     .font(.title2)
                     .fontWeight(.bold)
                 
                 if let firstDate = viewModel.selectedDrawDates.first,
                    let lastDate = viewModel.selectedDrawDates.last {
                     Text("\(firstDate.formatted(date: .long, time: .omitted)) - \(lastDate.formatted(date: .long, time: .omitted))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Brak dostępnych dat losowań dla tej gry.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -136,6 +168,10 @@ struct MyTicketsView: View {
             Text("Twoje liczby")
                 .font(.headline)
             
+            Text(viewModel.currentRules.inputPlaceholderText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            
             HStack {
                 ForEach(viewModel.numberInputs.indices, id: \.self) { index in
                     TextField("\(index + 1)", text: $viewModel.numberInputs[index])
@@ -161,6 +197,19 @@ struct MyTicketsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+    
+    private var unsupportedGameSection: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Ta gra wymaga dodatkowego formularza")
+                    .font(.headline)
+                
+                Text("Eurojackpot ma liczby główne oraz dodatkowe euroliczby, więc dodamy go jako osobny typ kuponu w kolejnym etapie.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
