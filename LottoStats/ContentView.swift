@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var selectedGame = "Lotto"
+    @State private var tickets = LottoTicket.samples
     
     let games = ["Lotto", "Mini Lotto", "Eurojackpot"]
     let latestDraw = DrawResult.sample
@@ -45,6 +46,15 @@ struct ContentView: View {
                         )
                     }
                     
+                    NavigationLink {
+                        MyTicketsView(tickets: $tickets)
+                    } label: {
+                        MenuButton(
+                            icon: "ticket.fill",
+                            title: "Moje kupony"
+                        )
+                    }
+                    
                     VStack(spacing: 12) {
                         InfoCard(
                             title: "Najczęstsza liczba",
@@ -54,8 +64,8 @@ struct ContentView: View {
                         
                         InfoCard(
                             title: "Twoje kupony",
-                            value: "0",
-                            subtitle: "W przyszłości dodamy zapis własnych liczb"
+                            value: "\(tickets.count)",
+                            subtitle: "Liczba zapisanych kuponów"
                         )
                     }
                     
