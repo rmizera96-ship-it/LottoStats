@@ -21,24 +21,16 @@ enum TicketStatusFilter: String, CaseIterable, Identifiable {
         case .all:
             return true
         case .active:
-            if case .active = status {
-                return true
-            }
+            if case .active = status { return true }
             return false
         case .checked:
-            if case .checked = status {
-                return true
-            }
+            if case .checked = status { return true }
             return false
         case .partiallyChecked:
-            if case .partiallyChecked = status {
-                return true
-            }
+            if case .partiallyChecked = status { return true }
             return false
         case .waitingForResults:
-            if case .waitingForResults = status {
-                return true
-            }
+            if case .waitingForResults = status { return true }
             return false
         }
     }
@@ -82,16 +74,8 @@ final class TicketViewModel: ObservableObject {
                 includesPlus = false
             }
             
-            numberInputs = Array(
-                repeating: "",
-                count: currentRules.mainNumbersCount
-            )
-            
-            extraNumberInputs = Array(
-                repeating: "",
-                count: currentRules.extraNumbersCount
-            )
-            
+            resetCurrentInputs()
+            draftLines.removeAll()
             selectedDrawCount = 1
             errorMessage = nil
             successMessage = nil
@@ -103,6 +87,7 @@ final class TicketViewModel: ObservableObject {
     
     @Published var numberInputs = Array(repeating: "", count: 6)
     @Published var extraNumberInputs: [String] = []
+    @Published var draftLines: [TicketLine] = []
     @Published var includesPlus = false
     @Published var selectedDrawCount = 1
     @Published var errorMessage: String?
@@ -166,30 +151,6 @@ final class TicketViewModel: ObservableObject {
         filteredTickets.count
     }
     
-    var activeTicketsCount: Int {
-        tickets.filter { ticket in
-            let status = checkResult(for: ticket).status
-            
-            if case .active = status {
-                return true
-            }
-            
-            return false
-        }.count
-    }
-    
-    var checkedTicketsCount: Int {
-        tickets.filter { ticket in
-            let status = checkResult(for: ticket).status
-            
-            if case .checked = status {
-                return true
-            }
-            
-            return false
-        }.count
-    }
-    
     func checkResult(for ticket: LottoTicket) -> TicketCheckResult {
         ticketChecker.check(ticket: ticket)
     }
@@ -218,61 +179,42 @@ final class TicketViewModel: ObservableObject {
         successMessage = nil
     }
     
+    func addCurrentLineToDraft() {
+        guard let line = makeLineFromCurrentInputs() else {
+            return
+        }
+        
+        draftLines.append(line)
+        resetCurrentInputs()
+        errorMessage = nil
+        successMessage = "Dodano zestaw \(draftLines.count) do kuponu."
+    }
+    
+    func removeDraftLine(_ line: TicketLine) {
+        draftLines.removeAll { $0.id == line.id }
+    }
+    
+    func clearDraftLines() {
+        draftLines.removeAll()
+        successMessage = nil
+        errorMessage = nil
+    }
+    
     func saveTicket() {
-        let numbers = numberInputs.compactMap { input in
-            Int(input.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
+        var linesToSave = draftLines
         
-        let extraNumbers = extraNumberInputs.compactMap { input in
-            Int(input.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        
-        guard numbers.count == currentRules.mainNumbersCount else {
-            errorMessage = "Wpisz dokładnie \(currentRules.mainNumbersCount) liczb głównych."
-            successMessage = nil
-            return
-        }
-        
-        guard numbers.allSatisfy({ number in
-            currentRules.mainNumberRange.contains(number)
-        }) else {
-            errorMessage = "Liczby główne muszą być z zakresu \(currentRules.mainNumberRange.lowerBound)-\(currentRules.mainNumberRange.upperBound)."
-            successMessage = nil
-            return
-        }
-        
-        guard Set(numbers).count == currentRules.mainNumbersCount else {
-            errorMessage = "Liczby główne nie mogą się powtarzać."
-            successMessage = nil
-            return
-        }
-        
-        if currentRules.extraNumbersCount > 0 {
-            guard let extraRange = currentRules.extraNumberRange else {
-                errorMessage = "Brak konfiguracji dla dodatkowych liczb."
-                successMessage = nil
+        if hasAnyCurrentInput {
+            guard let currentLine = makeLineFromCurrentInputs() else {
                 return
             }
             
-            guard extraNumbers.count == currentRules.extraNumbersCount else {
-                errorMessage = "Wpisz dokładnie \(currentRules.extraNumbersCount) euroliczby."
-                successMessage = nil
-                return
-            }
-            
-            guard extraNumbers.allSatisfy({ number in
-                extraRange.contains(number)
-            }) else {
-                errorMessage = "Euroliczby muszą być z zakresu \(extraRange.lowerBound)-\(extraRange.upperBound)."
-                successMessage = nil
-                return
-            }
-            
-            guard Set(extraNumbers).count == currentRules.extraNumbersCount else {
-                errorMessage = "Euroliczby nie mogą się powtarzać."
-                successMessage = nil
-                return
-            }
+            linesToSave.append(currentLine)
+        }
+        
+        guard !linesToSave.isEmpty else {
+            errorMessage = "Dodaj co najmniej jeden zestaw liczb do kuponu."
+            successMessage = nil
+            return
         }
         
         guard let firstDrawDate = selectedDrawDates.first else {
@@ -281,15 +223,12 @@ final class TicketViewModel: ObservableObject {
             return
         }
         
-        let sortedNumbers = numbers.sorted()
-        let sortedExtraNumbers = extraNumbers.sorted()
         let drawDatesForTicket = selectedDrawDates
         let drawCountForMessage = drawDatesForTicket.count
         
         let newTicket = LottoTicket(
             gameName: selectedGame.displayName,
-            numbers: sortedNumbers,
-            extraNumbers: sortedExtraNumbers,
+            lines: linesToSave,
             drawDate: firstDrawDate,
             drawDates: drawDatesForTicket,
             includesPlus: currentRules.supportsPlus ? includesPlus : false
@@ -298,20 +237,14 @@ final class TicketViewModel: ObservableObject {
         tickets.insert(newTicket, at: 0)
         saveTickets()
         
-        numberInputs = Array(
-            repeating: "",
-            count: currentRules.mainNumbersCount
-        )
-        extraNumberInputs = Array(
-            repeating: "",
-            count: currentRules.extraNumbersCount
-        )
+        draftLines.removeAll()
+        resetCurrentInputs()
         includesPlus = false
         selectedDrawCount = 1
         selectedGameFilter = .all
         selectedStatusFilter = .all
         errorMessage = nil
-        successMessage = "Kupon został dodany na \(drawCountForMessage) losowanie/losowań."
+        successMessage = "Kupon z \(linesToSave.count) zestawem/zestawami został zapisany."
     }
     
     func requestDelete(_ ticket: LottoTicket) {
@@ -340,6 +273,93 @@ final class TicketViewModel: ObservableObject {
         selectedGameFilter = .all
         errorMessage = nil
         successMessage = "Wszystkie kupony zostały usunięte."
+    }
+    
+    private var hasAnyCurrentInput: Bool {
+        let hasMainInput = numberInputs.contains { input in
+            !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        
+        let hasExtraInput = extraNumberInputs.contains { input in
+            !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        
+        return hasMainInput || hasExtraInput
+    }
+    
+    private func makeLineFromCurrentInputs() -> TicketLine? {
+        let numbers = numberInputs.compactMap { input in
+            Int(input.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        
+        let extraNumbers = extraNumberInputs.compactMap { input in
+            Int(input.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        
+        guard numbers.count == currentRules.mainNumbersCount else {
+            errorMessage = "Wpisz dokładnie \(currentRules.mainNumbersCount) liczb głównych."
+            successMessage = nil
+            return nil
+        }
+        
+        guard numbers.allSatisfy({ number in
+            currentRules.mainNumberRange.contains(number)
+        }) else {
+            errorMessage = "Liczby główne muszą być z zakresu \(currentRules.mainNumberRange.lowerBound)-\(currentRules.mainNumberRange.upperBound)."
+            successMessage = nil
+            return nil
+        }
+        
+        guard Set(numbers).count == currentRules.mainNumbersCount else {
+            errorMessage = "Liczby główne nie mogą się powtarzać."
+            successMessage = nil
+            return nil
+        }
+        
+        if currentRules.extraNumbersCount > 0 {
+            guard let extraRange = currentRules.extraNumberRange else {
+                errorMessage = "Brak konfiguracji dla dodatkowych liczb."
+                successMessage = nil
+                return nil
+            }
+            
+            guard extraNumbers.count == currentRules.extraNumbersCount else {
+                errorMessage = "Wpisz dokładnie \(currentRules.extraNumbersCount) euroliczby."
+                successMessage = nil
+                return nil
+            }
+            
+            guard extraNumbers.allSatisfy({ number in
+                extraRange.contains(number)
+            }) else {
+                errorMessage = "Euroliczby muszą być z zakresu \(extraRange.lowerBound)-\(extraRange.upperBound)."
+                successMessage = nil
+                return nil
+            }
+            
+            guard Set(extraNumbers).count == currentRules.extraNumbersCount else {
+                errorMessage = "Euroliczby nie mogą się powtarzać."
+                successMessage = nil
+                return nil
+            }
+        }
+        
+        return TicketLine(
+            numbers: numbers.sorted(),
+            extraNumbers: extraNumbers.sorted()
+        )
+    }
+    
+    private func resetCurrentInputs() {
+        numberInputs = Array(
+            repeating: "",
+            count: currentRules.mainNumbersCount
+        )
+        
+        extraNumberInputs = Array(
+            repeating: "",
+            count: currentRules.extraNumbersCount
+        )
     }
     
     private func deleteTicket(_ ticket: LottoTicket) {

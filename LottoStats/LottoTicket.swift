@@ -3,8 +3,7 @@ import Foundation
 struct LottoTicket: Identifiable, Codable, Equatable {
     let id: UUID
     let gameName: String
-    let numbers: [Int]
-    let extraNumbers: [Int]
+    let lines: [TicketLine]
     let drawDate: Date
     let drawDates: [Date]
     let includesPlus: Bool
@@ -12,6 +11,32 @@ struct LottoTicket: Identifiable, Codable, Equatable {
     
     var game: LottoGame {
         LottoGame.fromDisplayName(gameName) ?? .lotto
+    }
+
+    var numbers: [Int] {
+        lines.first?.numbers ?? []
+    }
+    
+    var extraNumbers: [Int] {
+        lines.first?.extraNumbers ?? []
+    }
+    
+    init(
+        id: UUID = UUID(),
+        gameName: String = LottoGame.lotto.displayName,
+        lines: [TicketLine],
+        drawDate: Date,
+        drawDates: [Date]? = nil,
+        includesPlus: Bool = false,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.gameName = gameName
+        self.lines = lines
+        self.drawDate = drawDate
+        self.drawDates = drawDates ?? [drawDate]
+        self.includesPlus = includesPlus
+        self.createdAt = createdAt
     }
     
     init(
@@ -26,8 +51,12 @@ struct LottoTicket: Identifiable, Codable, Equatable {
     ) {
         self.id = id
         self.gameName = gameName
-        self.numbers = numbers
-        self.extraNumbers = extraNumbers
+        self.lines = [
+            TicketLine(
+                numbers: numbers,
+                extraNumbers: extraNumbers
+            )
+        ]
         self.drawDate = drawDate
         self.drawDates = drawDates ?? [drawDate]
         self.includesPlus = includesPlus
@@ -37,6 +66,7 @@ struct LottoTicket: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id
         case gameName
+        case lines
         case numbers
         case extraNumbers
         case drawDate
@@ -50,12 +80,40 @@ struct LottoTicket: Identifiable, Codable, Equatable {
         
         id = try container.decode(UUID.self, forKey: .id)
         gameName = try container.decode(String.self, forKey: .gameName)
-        numbers = try container.decode([Int].self, forKey: .numbers)
-        extraNumbers = try container.decodeIfPresent([Int].self, forKey: .extraNumbers) ?? []
         drawDate = try container.decode(Date.self, forKey: .drawDate)
         drawDates = try container.decodeIfPresent([Date].self, forKey: .drawDates) ?? [drawDate]
         includesPlus = try container.decodeIfPresent(Bool.self, forKey: .includesPlus) ?? false
         createdAt = try container.decode(Date.self, forKey: .createdAt)
+        
+        if let decodedLines = try container.decodeIfPresent([TicketLine].self, forKey: .lines) {
+            lines = decodedLines
+        } else {
+            let legacyNumbers = try container.decodeIfPresent([Int].self, forKey: .numbers) ?? []
+            let legacyExtraNumbers = try container.decodeIfPresent([Int].self, forKey: .extraNumbers) ?? []
+            
+            if legacyNumbers.isEmpty {
+                lines = []
+            } else {
+                lines = [
+                    TicketLine(
+                        numbers: legacyNumbers,
+                        extraNumbers: legacyExtraNumbers
+                    )
+                ]
+            }
+        }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        
+        try container.encode(id, forKey: .id)
+        try container.encode(gameName, forKey: .gameName)
+        try container.encode(lines, forKey: .lines)
+        try container.encode(drawDate, forKey: .drawDate)
+        try container.encode(drawDates, forKey: .drawDates)
+        try container.encode(includesPlus, forKey: .includesPlus)
+        try container.encode(createdAt, forKey: .createdAt)
     }
 }
 

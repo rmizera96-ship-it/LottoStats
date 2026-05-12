@@ -20,28 +20,46 @@ enum TicketStatus {
     }
 }
 
-struct SingleDrawCheckResult: Identifiable {
-    let id: Date
-    let drawDate: Date
+struct TicketLineCheckResult: Identifiable {
+    let line: TicketLine
+    let lineIndex: Int
     let lottoMatchedNumbers: [Int]
     let plusMatchedNumbers: [Int]
     let extraMatchedNumbers: [Int]
+    
+    var id: UUID {
+        line.id
+    }
+}
+
+struct SingleDrawCheckResult: Identifiable {
+    let id: Date
+    let drawDate: Date
+    let lineResults: [TicketLineCheckResult]
     let hasPlusResult: Bool
     let hasExtraResult: Bool
     
+    var lottoMatchedNumbers: [Int] {
+        Array(Set(lineResults.flatMap { $0.lottoMatchedNumbers })).sorted()
+    }
+    
+    var plusMatchedNumbers: [Int] {
+        Array(Set(lineResults.flatMap { $0.plusMatchedNumbers })).sorted()
+    }
+    
+    var extraMatchedNumbers: [Int] {
+        Array(Set(lineResults.flatMap { $0.extraMatchedNumbers })).sorted()
+    }
+    
     init(
         drawDate: Date,
-        lottoMatchedNumbers: [Int],
-        plusMatchedNumbers: [Int],
-        extraMatchedNumbers: [Int],
+        lineResults: [TicketLineCheckResult],
         hasPlusResult: Bool,
         hasExtraResult: Bool
     ) {
         self.id = drawDate
         self.drawDate = drawDate
-        self.lottoMatchedNumbers = lottoMatchedNumbers
-        self.plusMatchedNumbers = plusMatchedNumbers
-        self.extraMatchedNumbers = extraMatchedNumbers
+        self.lineResults = lineResults
         self.hasPlusResult = hasPlusResult
         self.hasExtraResult = hasExtraResult
     }
@@ -68,6 +86,27 @@ struct TicketCheckResult {
             drawCheck.extraMatchedNumbers.contains(number)
         }
     }
+    
+    func isNumberMatched(_ number: Int, in line: TicketLine) -> Bool {
+        checkedDraws.contains { drawCheck in
+            drawCheck.lineResults.contains { lineResult in
+                lineResult.line.id == line.id &&
+                (
+                    lineResult.lottoMatchedNumbers.contains(number) ||
+                    lineResult.plusMatchedNumbers.contains(number)
+                )
+            }
+        }
+    }
+    
+    func isExtraNumberMatched(_ number: Int, in line: TicketLine) -> Bool {
+        checkedDraws.contains { drawCheck in
+            drawCheck.lineResults.contains { lineResult in
+                lineResult.line.id == line.id &&
+                lineResult.extraMatchedNumbers.contains(number)
+            }
+        }
+    }
 }
 
 struct TicketChecker {
@@ -91,41 +130,43 @@ struct TicketChecker {
             }
             
             let lottoNumbers = Set(result.numbers)
-            let lottoMatchedNumbers = ticket.numbers.filter {
-                lottoNumbers.contains($0)
-            }
+            let plusNumbersSet = Set(result.plusNumbers ?? [])
+            let extraNumbersSet = Set(result.extraNumbers ?? [])
             
             let hasPlusResult = result.plusNumbers != nil
-            
-            let plusMatchedNumbers: [Int]
-            
-            if ticket.includesPlus, let plusNumbers = result.plusNumbers {
-                let plusNumbersSet = Set(plusNumbers)
-                plusMatchedNumbers = ticket.numbers.filter {
-                    plusNumbersSet.contains($0)
-                }
-            } else {
-                plusMatchedNumbers = []
-            }
-            
             let hasExtraResult = result.extraNumbers != nil
             
-            let extraMatchedNumbers: [Int]
-            
-            if let resultExtraNumbers = result.extraNumbers {
-                let extraNumbersSet = Set(resultExtraNumbers)
-                extraMatchedNumbers = ticket.extraNumbers.filter {
+            let lineResults = ticket.lines.enumerated().map { index, line in
+                let lottoMatchedNumbers = line.numbers.filter {
+                    lottoNumbers.contains($0)
+                }
+                
+                let plusMatchedNumbers: [Int]
+                
+                if ticket.includesPlus {
+                    plusMatchedNumbers = line.numbers.filter {
+                        plusNumbersSet.contains($0)
+                    }
+                } else {
+                    plusMatchedNumbers = []
+                }
+                
+                let extraMatchedNumbers = line.extraNumbers.filter {
                     extraNumbersSet.contains($0)
                 }
-            } else {
-                extraMatchedNumbers = []
+                
+                return TicketLineCheckResult(
+                    line: line,
+                    lineIndex: index,
+                    lottoMatchedNumbers: lottoMatchedNumbers,
+                    plusMatchedNumbers: plusMatchedNumbers,
+                    extraMatchedNumbers: extraMatchedNumbers
+                )
             }
             
             return SingleDrawCheckResult(
                 drawDate: result.drawDate,
-                lottoMatchedNumbers: lottoMatchedNumbers,
-                plusMatchedNumbers: plusMatchedNumbers,
-                extraMatchedNumbers: extraMatchedNumbers,
+                lineResults: lineResults,
                 hasPlusResult: hasPlusResult,
                 hasExtraResult: hasExtraResult
             )

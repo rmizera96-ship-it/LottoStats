@@ -38,17 +38,17 @@ struct MyTicketsView: View {
                 }
                 
                 Button {
-                    viewModel.saveTicket()
+                    viewModel.addCurrentLineToDraft()
                 } label: {
                     HStack {
-                        Image(systemName: "plus.circle.fill")
-                        Text("Dodaj kupon")
+                        Image(systemName: "plus.square.fill")
+                        Text("Dodaj zestaw do kuponu")
                             .fontWeight(.semibold)
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.blue)
-                    .foregroundStyle(.white)
+                    .background(Color(.secondarySystemBackground))
+                    .foregroundStyle(.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 
@@ -64,6 +64,23 @@ struct MyTicketsView: View {
                     .padding()
                     .background(Color(.secondarySystemBackground))
                     .foregroundStyle(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                
+                draftLinesSection
+                
+                Button {
+                    viewModel.saveTicket()
+                } label: {
+                    HStack {
+                        Image(systemName: "ticket.fill")
+                        Text("Zapisz kupon")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundStyle(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 
@@ -93,7 +110,7 @@ struct MyTicketsView: View {
                 .font(.title2)
                 .fontWeight(.bold)
             
-            Text("Wybierz grę, wpisz liczby i przypisz kupon do jednego albo kilku kolejnych losowań.")
+            Text("Jeden kupon może zawierać kilka zestawów liczb, tak jak na prawdziwym kuponie Lotto.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -143,7 +160,7 @@ struct MyTicketsView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                 
-                Text("Kupon będzie sprawdzany tylko z wynikami przypisanych losowań.")
+                Text("Wszystkie zestawy z tego kuponu będą sprawdzane dla tych samych losowań.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -219,9 +236,51 @@ struct MyTicketsView: View {
                     Text("Lotto Plus")
                         .font(.headline)
                     
-                    Text("Te same liczby wezmą udział także w osobnym losowaniu Plus.")
+                    Text("Te same zestawy liczb wezmą udział także w osobnym losowaniu Plus.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+    
+    private var draftLinesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Zestawy na tym kuponie")
+                    .font(.headline)
+                
+                Spacer()
+                
+                if !viewModel.draftLines.isEmpty {
+                    Button("Wyczyść") {
+                        viewModel.clearDraftLines()
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                }
+            }
+            
+            if viewModel.draftLines.isEmpty {
+                AppCard {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Nie dodano jeszcze żadnego zestawu.")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        
+                        Text("Wpisz liczby i kliknij „Dodaj zestaw do kuponu”. Możesz też od razu kliknąć „Zapisz kupon” — aktualnie wpisane liczby zostaną zapisane jako pierwszy zestaw.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                ForEach(Array(viewModel.draftLines.enumerated()), id: \.element.id) { index, line in
+                    DraftLineRow(
+                        index: index,
+                        line: line
+                    ) {
+                        viewModel.removeDraftLine(line)
+                    }
                 }
             }
         }
@@ -314,6 +373,53 @@ struct MyTicketsView: View {
     }
 }
 
+struct DraftLineRow: View {
+    let index: Int
+    let line: TicketLine
+    let onDelete: () -> Void
+    
+    var body: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Zestaw \(index + 1)")
+                        .font(.headline)
+                    
+                    Spacer()
+                    
+                    Button(role: .destructive) {
+                        onDelete()
+                    } label: {
+                        Image(systemName: "trash")
+                            .foregroundStyle(.red)
+                    }
+                }
+                
+                HStack {
+                    ForEach(line.numbers, id: \.self) { number in
+                        NumberBall(number: number, style: .lotto, size: 34)
+                    }
+                }
+                
+                if !line.extraNumbers.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Euroliczby")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                        
+                        HStack {
+                            ForEach(line.extraNumbers, id: \.self) { number in
+                                NumberBall(number: number, style: .plus, size: 34)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct TicketRow: View {
     let ticket: LottoTicket
     let checkResult: TicketCheckResult
@@ -334,6 +440,10 @@ struct TicketRow: View {
         return "\(firstDate.formatted(date: .abbreviated, time: .omitted)) - \(lastDate.formatted(date: .abbreviated, time: .omitted))"
     }
     
+    private var hasExtraNumbers: Bool {
+        ticket.lines.contains { !$0.extraNumbers.isEmpty }
+    }
+    
     var body: some View {
         AppCard {
             VStack(alignment: .leading, spacing: 12) {
@@ -341,10 +451,8 @@ struct TicketRow: View {
                 
                 badgesSection
                 
-                mainNumbersSection
-                
-                if !ticket.extraNumbers.isEmpty {
-                    extraNumbersSection
+                ForEach(Array(ticket.lines.enumerated()), id: \.element.id) { index, line in
+                    ticketLineSection(index: index, line: line)
                 }
                 
                 resultSection
@@ -400,6 +508,14 @@ struct TicketRow: View {
                 .background(Color.blue.opacity(0.15))
                 .clipShape(Capsule())
             
+            Text("\(ticket.lines.count) zest.")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color(.tertiarySystemBackground))
+                .clipShape(Capsule())
+            
             if ticket.includesPlus {
                 Text("Plus")
                     .font(.caption)
@@ -410,7 +526,7 @@ struct TicketRow: View {
                     .clipShape(Capsule())
             }
             
-            if !ticket.extraNumbers.isEmpty {
+            if hasExtraNumbers {
                 Text("Euroliczby")
                     .font(.caption)
                     .fontWeight(.semibold)
@@ -424,39 +540,34 @@ struct TicketRow: View {
         }
     }
     
-    private var mainNumbersSection: some View {
+    private func ticketLineSection(index: Int, line: TicketLine) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Liczby główne")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
+            if ticket.lines.count > 1 {
+                Text("Zestaw \(index + 1)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+            }
             
             HStack {
-                ForEach(ticket.numbers, id: \.self) { number in
+                ForEach(line.numbers, id: \.self) { number in
                     NumberBall(
                         number: number,
-                        style: mainNumberStyle(number),
+                        style: mainNumberStyle(number, line: line),
                         size: 34
                     )
                 }
             }
-        }
-    }
-    
-    private var extraNumbersSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Euroliczby")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
             
-            HStack {
-                ForEach(ticket.extraNumbers, id: \.self) { number in
-                    NumberBall(
-                        number: number,
-                        style: extraNumberStyle(number),
-                        size: 34
-                    )
+            if !line.extraNumbers.isEmpty {
+                HStack {
+                    ForEach(line.extraNumbers, id: \.self) { number in
+                        NumberBall(
+                            number: number,
+                            style: extraNumberStyle(number, line: line),
+                            size: 34
+                        )
+                    }
                 }
             }
         }
@@ -500,8 +611,8 @@ struct TicketRow: View {
         }
     }
     
-    private func mainNumberStyle(_ number: Int) -> NumberBallStyle {
-        if checkResult.isNumberMatched(number) {
+    private func mainNumberStyle(_ number: Int, line: TicketLine) -> NumberBallStyle {
+        if checkResult.isNumberMatched(number, in: line) {
             return .matched
         }
         
@@ -512,8 +623,8 @@ struct TicketRow: View {
         return .inactive
     }
     
-    private func extraNumberStyle(_ number: Int) -> NumberBallStyle {
-        if checkResult.isExtraNumberMatched(number) {
+    private func extraNumberStyle(_ number: Int, line: TicketLine) -> NumberBallStyle {
+        if checkResult.isExtraNumberMatched(number, in: line) {
             return .matched
         }
         
@@ -530,46 +641,55 @@ struct DrawCheckRow: View {
     let check: SingleDrawCheckResult
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(check.drawDate.formatted(date: .abbreviated, time: .omitted))
                 .font(.caption)
                 .fontWeight(.semibold)
             
-            Text("Liczby główne: \(resultText(for: check.lottoMatchedNumbers.count))")
-                .font(.caption)
-            
-            Text("Trafione główne: \(numbersText(check.lottoMatchedNumbers))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            
-            if !ticket.extraNumbers.isEmpty {
-                if check.hasExtraResult {
-                    Text("Euroliczby: \(resultText(for: check.extraMatchedNumbers.count))")
+            ForEach(check.lineResults) { lineResult in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Zestaw \(lineResult.lineIndex + 1)")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    
+                    Text("Liczby główne: \(resultText(for: lineResult.lottoMatchedNumbers.count))")
                         .font(.caption)
                     
-                    Text("Trafione euroliczby: \(numbersText(check.extraMatchedNumbers))")
+                    Text("Trafione główne: \(numbersText(lineResult.lottoMatchedNumbers))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else {
-                    Text("Euroliczby: brak wyniku")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            
-            if ticket.includesPlus {
-                if check.hasPlusResult {
-                    Text("Lotto Plus: \(resultText(for: check.plusMatchedNumbers.count))")
-                        .font(.caption)
                     
-                    Text("Trafione Plus: \(numbersText(check.plusMatchedNumbers))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Lotto Plus: brak wyniku")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if !lineResult.line.extraNumbers.isEmpty {
+                        if check.hasExtraResult {
+                            Text("Euroliczby: \(resultText(for: lineResult.extraMatchedNumbers.count))")
+                                .font(.caption)
+                            
+                            Text("Trafione euroliczby: \(numbersText(lineResult.extraMatchedNumbers))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Euroliczby: brak wyniku")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    
+                    if ticket.includesPlus {
+                        if check.hasPlusResult {
+                            Text("Lotto Plus: \(resultText(for: lineResult.plusMatchedNumbers.count))")
+                                .font(.caption)
+                            
+                            Text("Trafione Plus: \(numbersText(lineResult.plusMatchedNumbers))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Lotto Plus: brak wyniku")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
+                .padding(.top, 4)
             }
         }
         .padding(.top, 4)
