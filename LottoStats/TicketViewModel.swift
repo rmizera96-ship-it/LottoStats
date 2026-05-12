@@ -1,6 +1,77 @@
 import Foundation
 import Combine
 
+enum TicketStatusFilter: String, CaseIterable, Identifiable {
+    case all = "Wszystkie"
+    case active = "Aktywne"
+    case checked = "Sprawdzone"
+    case partiallyChecked = "Częściowo"
+    case waitingForResults = "Oczekujące"
+    
+    var id: String {
+        rawValue
+    }
+    
+    var displayName: String {
+        rawValue
+    }
+    
+    func matches(_ status: TicketStatus) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .active:
+            if case .active = status {
+                return true
+            }
+            return false
+        case .checked:
+            if case .checked = status {
+                return true
+            }
+            return false
+        case .partiallyChecked:
+            if case .partiallyChecked = status {
+                return true
+            }
+            return false
+        case .waitingForResults:
+            if case .waitingForResults = status {
+                return true
+            }
+            return false
+        }
+    }
+}
+
+enum TicketGameFilter: String, CaseIterable, Identifiable {
+    case all = "Wszystkie"
+    case lotto = "Lotto"
+    case miniLotto = "Mini Lotto"
+    case eurojackpot = "Eurojackpot"
+    
+    var id: String {
+        rawValue
+    }
+    
+    var displayName: String {
+        rawValue
+    }
+    
+    var game: LottoGame? {
+        switch self {
+        case .all:
+            return nil
+        case .lotto:
+            return .lotto
+        case .miniLotto:
+            return .miniLotto
+        case .eurojackpot:
+            return .eurojackpot
+        }
+    }
+}
+
 @MainActor
 final class TicketViewModel: ObservableObject {
     @Published private(set) var tickets: [LottoTicket] = []
@@ -26,6 +97,9 @@ final class TicketViewModel: ObservableObject {
             successMessage = nil
         }
     }
+    
+    @Published var selectedStatusFilter: TicketStatusFilter = .all
+    @Published var selectedGameFilter: TicketGameFilter = .all
     
     @Published var numberInputs = Array(repeating: "", count: 6)
     @Published var extraNumberInputs: [String] = []
@@ -69,6 +143,51 @@ final class TicketViewModel: ObservableObject {
             for: selectedGame,
             count: selectedDrawCount
         )
+    }
+    
+    var filteredTickets: [LottoTicket] {
+        tickets.filter { ticket in
+            let matchesGame: Bool
+            
+            if let selectedGame = selectedGameFilter.game {
+                matchesGame = ticket.game == selectedGame
+            } else {
+                matchesGame = true
+            }
+            
+            let status = checkResult(for: ticket).status
+            let matchesStatus = selectedStatusFilter.matches(status)
+            
+            return matchesGame && matchesStatus
+        }
+    }
+    
+    var filteredTicketsCount: Int {
+        filteredTickets.count
+    }
+    
+    var activeTicketsCount: Int {
+        tickets.filter { ticket in
+            let status = checkResult(for: ticket).status
+            
+            if case .active = status {
+                return true
+            }
+            
+            return false
+        }.count
+    }
+    
+    var checkedTicketsCount: Int {
+        tickets.filter { ticket in
+            let status = checkResult(for: ticket).status
+            
+            if case .checked = status {
+                return true
+            }
+            
+            return false
+        }.count
     }
     
     func checkResult(for ticket: LottoTicket) -> TicketCheckResult {
@@ -189,6 +308,8 @@ final class TicketViewModel: ObservableObject {
         )
         includesPlus = false
         selectedDrawCount = 1
+        selectedGameFilter = .all
+        selectedStatusFilter = .all
         errorMessage = nil
         successMessage = "Kupon został dodany na \(drawCountForMessage) losowanie/losowań."
     }
@@ -215,6 +336,8 @@ final class TicketViewModel: ObservableObject {
         tickets.removeAll()
         saveTickets()
         
+        selectedStatusFilter = .all
+        selectedGameFilter = .all
         errorMessage = nil
         successMessage = "Wszystkie kupony zostały usunięte."
     }

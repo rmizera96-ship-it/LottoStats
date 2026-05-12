@@ -67,6 +67,8 @@ struct MyTicketsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 
+                ticketsFilterSection
+                
                 ticketsSection
             }
             .padding()
@@ -225,6 +227,57 @@ struct MyTicketsView: View {
         }
     }
     
+    private var ticketsFilterSection: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Filtrowanie kuponów")
+                            .font(.headline)
+                        
+                        Text("Pokazano \(viewModel.filteredTicketsCount) z \(viewModel.tickets.count) kuponów")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Status")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                    
+                    Picker("Status", selection: $viewModel.selectedStatusFilter) {
+                        ForEach(TicketStatusFilter.allCases) { filter in
+                            Text(filter.displayName)
+                                .tag(filter)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Gra")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                    
+                    Picker("Gra", selection: $viewModel.selectedGameFilter) {
+                        ForEach(TicketGameFilter.allCases) { filter in
+                            Text(filter.displayName)
+                                .tag(filter)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+    
     private var ticketsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Zapisane kupony")
@@ -236,8 +289,19 @@ struct MyTicketsView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+            } else if viewModel.filteredTickets.isEmpty {
+                AppCard {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Brak kuponów dla wybranego filtra")
+                            .font(.headline)
+                        
+                        Text("Zmień filtr statusu albo gry, żeby zobaczyć inne kupony.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             } else {
-                ForEach(viewModel.tickets) { ticket in
+                ForEach(viewModel.filteredTickets) { ticket in
                     TicketRow(
                         ticket: ticket,
                         checkResult: viewModel.checkResult(for: ticket)
