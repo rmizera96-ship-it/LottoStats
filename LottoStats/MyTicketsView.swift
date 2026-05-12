@@ -11,11 +11,16 @@ struct MyTicketsView: View {
     @State private var ticketToDelete: LottoTicket?
     @State private var showDeleteAlert = false
     
-    private let gameName = "Lotto"
+    private let game: LottoGame = .lotto
+    private let repository = LottoRepository.shared
+    private let ticketChecker = TicketChecker()
     private let drawCountOptions = [1, 2, 4, 8, 10]
     
     private var selectedDrawDates: [Date] {
-        DrawResult.upcomingDrawDates(count: selectedDrawCount)
+        repository.upcomingDrawDates(
+            for: game,
+            count: selectedDrawCount
+        )
     }
     
     var body: some View {
@@ -112,7 +117,7 @@ struct MyTicketsView: View {
                 Text("Kupon na losowanie")
                     .font(.headline)
                 
-                Text(gameName)
+                Text(game.displayName)
                     .font(.title2)
                     .fontWeight(.bold)
                 
@@ -195,7 +200,10 @@ struct MyTicketsView: View {
                 }
             } else {
                 ForEach(tickets) { ticket in
-                    TicketRow(ticket: ticket) {
+                    TicketRow(
+                        ticket: ticket,
+                        checkResult: ticketChecker.check(ticket: ticket)
+                    ) {
                         requestDelete(ticket)
                     }
                 }
@@ -235,12 +243,14 @@ struct MyTicketsView: View {
         }
         
         let sortedNumbers = numbers.sorted()
+        let drawDatesForTicket = selectedDrawDates
+        let drawCountForMessage = drawDatesForTicket.count
         
         let newTicket = LottoTicket(
-            gameName: gameName,
+            gameName: game.displayName,
             numbers: sortedNumbers,
             drawDate: firstDrawDate,
-            drawDates: selectedDrawDates,
+            drawDates: drawDatesForTicket,
             includesPlus: includesPlus
         )
         
@@ -249,7 +259,7 @@ struct MyTicketsView: View {
         includesPlus = false
         selectedDrawCount = 1
         errorMessage = nil
-        successMessage = "Kupon został dodany na \(selectedDrawDates.count) losowanie/losowań."
+        successMessage = "Kupon został dodany na \(drawCountForMessage) losowanie/losowań."
     }
     
     private func generateRandomTicket() {
@@ -278,38 +288,8 @@ struct MyTicketsView: View {
 
 struct TicketRow: View {
     let ticket: LottoTicket
+    let checkResult: TicketCheckResult
     let onDelete: () -> Void
-    
-    private var matchingResults: [DrawResult] {
-        ticket.drawDates.compactMap { drawDate in
-            DrawResult.result(for: ticket.gameName, drawDate: drawDate)
-        }
-    }
-    
-    private var checkedDrawsCount: Int {
-        matchingResults.count
-    }
-    
-    private var statusText: String {
-        if checkedDrawsCount == ticket.drawDates.count {
-            return "Sprawdzony"
-        }
-        
-        if checkedDrawsCount > 0 {
-            return "Częściowo sprawdzony"
-        }
-        
-        let today = Calendar.current.startOfDay(for: Date())
-        let hasFutureDraw = ticket.drawDates.contains { drawDate in
-            Calendar.current.startOfDay(for: drawDate) >= today
-        }
-        
-        if hasFutureDraw {
-            return "Aktywny"
-        } else {
-            return "Oczekuje na wyniki"
-        }
-    }
     
     private var dateRangeText: String {
         let sortedDates = ticket.drawDates.sorted()
@@ -332,7 +312,7 @@ struct TicketRow: View {
                 topSection
                 
                 HStack {
-                    Text(statusText)
+                    Text(checkResult.status.displayName)
                         .font(.caption)
                         .fontWeight(.semibold)
                         .padding(.horizontal, 10)
@@ -412,7 +392,7 @@ struct TicketRow: View {
     
     private var resultSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if matchingResults.isEmpty {
+            if checkResult.checkedDraws.isEmpty {
                 Text("Kupon nie został jeszcze sprawdzony.")
                     .font(.subheadline)
                     .fontWeight(.semibold)
@@ -421,95 +401,83 @@ struct TicketRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Sprawdzone losowania: \(checkedDrawsCount)/\(ticket.drawDates.count)")
+                Text("Sprawdzone losowania: \(checkResult.checkedDrawsCount)/\(checkResult.totalDrawsCount)")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                 
-                ForEach(matchingResults) { result in
-                    DrawCheckRow(ticket: ticket, result: result)
+                ForEach(checkResult.checkedDraws) { drawCheck in
+                    DrawCheckRow(
+                        ticket: ticket,
+                        check: drawCheck
+                    )
                 }
             }
         }
     }
     
     private var statusBackground: Color {
-        if checkedDrawsCount == ticket.drawDates.count {
+        switch checkResult.status {
+        case .checked:
             return Color.green.opacity(0.2)
-        }
-        
-        if checkedDrawsCount > 0 {
+        case .partiallyChecked:
             return Color.orange.opacity(0.2)
-        }
-        
-        let today = Calendar.current.startOfDay(for: Date())
-        let hasFutureDraw = ticket.drawDates.contains { drawDate in
-            Calendar.current.startOfDay(for: drawDate) >= today
-        }
-        
-        if hasFutureDraw {
+        case .active:
             return Color.blue.opacity(0.2)
-        } else {
+        case .waitingForResults:
             return Color.orange.opacity(0.2)
         }
     }
     
     private func numberStyle(_ number: Int) -> NumberBallStyle {
-        let isMatchedInAnyDraw = matchingResults.contains { result in
-            result.numbers.contains(number) ||
-            (ticket.includesPlus && (result.plusNumbers?.contains(number) ?? false))
+        if checkResult.isNumberMatched(number) {
+            return .matched
         }
         
-        if isMatchedInAnyDraw {
-            return .matched
-        } else if matchingResults.isEmpty {
+        if checkResult.checkedDraws.isEmpty {
             return .lotto
-        } else {
-            return .inactive
         }
+        
+        return .inactive
     }
 }
 
 struct DrawCheckRow: View {
     let ticket: LottoTicket
-    let result: DrawResult
-    
-    private var lottoMatchedNumbers: [Int] {
-        let winningNumbers = Set(result.numbers)
-        return ticket.numbers.filter { winningNumbers.contains($0) }
-    }
-    
-    private var plusMatchedNumbers: [Int] {
-        guard let plusNumbers = result.plusNumbers else {
-            return []
-        }
-        
-        let winningNumbers = Set(plusNumbers)
-        return ticket.numbers.filter { winningNumbers.contains($0) }
-    }
+    let check: SingleDrawCheckResult
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(result.drawDate.formatted(date: .abbreviated, time: .omitted))
+            Text(check.drawDate.formatted(date: .abbreviated, time: .omitted))
                 .font(.caption)
                 .fontWeight(.semibold)
             
-            Text("Lotto: \(resultText(for: lottoMatchedNumbers.count))")
+            Text("Lotto: \(resultText(for: check.lottoMatchedNumbers.count))")
                 .font(.caption)
             
-            Text("Trafione Lotto: \(lottoMatchedNumbers.isEmpty ? "brak" : lottoMatchedNumbers.map(String.init).joined(separator: ", "))")
+            Text("Trafione Lotto: \(numbersText(check.lottoMatchedNumbers))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             
             if ticket.includesPlus {
-                Text("Lotto Plus: \(resultText(for: plusMatchedNumbers.count))")
-                    .font(.caption)
-                
-                Text("Trafione Plus: \(plusMatchedNumbers.isEmpty ? "brak" : plusMatchedNumbers.map(String.init).joined(separator: ", "))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if check.hasPlusResult {
+                    Text("Lotto Plus: \(resultText(for: check.plusMatchedNumbers.count))")
+                        .font(.caption)
+                    
+                    Text("Trafione Plus: \(numbersText(check.plusMatchedNumbers))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Lotto Plus: brak wyniku")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.top, 4)
+    }
+    
+    private func numbersText(_ numbers: [Int]) -> String {
+        numbers.isEmpty ? "brak" : numbers.map(String.init).joined(separator: ", ")
     }
     
     private func resultText(for count: Int) -> String {
