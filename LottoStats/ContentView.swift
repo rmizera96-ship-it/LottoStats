@@ -125,17 +125,16 @@ struct HomeView: View {
                     )
                 }
                 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Nawigacja")
-                        .font(.headline)
-                    
-                    Text("Użyj dolnego menu, żeby przejść do historii losowań, statystyk albo swoich kuponów.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                AppCard {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Nawigacja")
+                            .font(.headline)
+                        
+                        Text("Użyj dolnego menu, żeby przejść do historii losowań, statystyk albo swoich kuponów.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
                 
                 Spacer()
             }
@@ -157,74 +156,39 @@ struct HomeView: View {
     }
     
     private var latestDrawCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Ostatnie losowanie")
-                .font(.headline)
-            
-            Text(latestDraw.gameName)
-                .font(.title2)
-                .fontWeight(.bold)
-            
-            Text(latestDraw.drawDate.formatted(date: .long, time: .omitted))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            
-            HStack {
-                ForEach(latestDraw.numbers, id: \.self) { number in
-                    Text("\(number)")
-                        .font(.headline)
-                        .frame(width: 42, height: 42)
-                        .background(Color.blue.opacity(0.15))
-                        .clipShape(Circle())
-                }
-            }
-            
-            if let plusNumbers = latestDraw.plusNumbers {
-                Divider()
-                
-                Text("Lotto Plus")
+        AppCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Ostatnie losowanie")
                     .font(.headline)
                 
+                Text(latestDraw.gameName)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                
+                Text(latestDraw.drawDate.formatted(date: .long, time: .omitted))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                
                 HStack {
-                    ForEach(plusNumbers, id: \.self) { number in
-                        Text("\(number)")
-                            .font(.headline)
-                            .frame(width: 42, height: 42)
-                            .background(Color.purple.opacity(0.15))
-                            .clipShape(Circle())
+                    ForEach(latestDraw.numbers, id: \.self) { number in
+                        NumberBall(number: number, style: .lotto)
+                    }
+                }
+                
+                if let plusNumbers = latestDraw.plusNumbers {
+                    Divider()
+                    
+                    Text("Lotto Plus")
+                        .font(.headline)
+                    
+                    HStack {
+                        ForEach(plusNumbers, id: \.self) { number in
+                            NumberBall(number: number, style: .plus)
+                        }
                     }
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-}
-
-struct InfoCard: View {
-    let title: String
-    let value: String
-    let subtitle: String
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-            
-            Text(value)
-                .font(.title2)
-                .fontWeight(.bold)
-            
-            Text(subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
 
