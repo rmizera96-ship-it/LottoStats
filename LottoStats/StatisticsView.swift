@@ -69,6 +69,30 @@ struct StatisticsView: View {
                 }
                 .pickerStyle(.segmented)
                 
+                AppCard {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Źródło danych")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            
+                            Text(viewModel.dataSourceName)
+                                .font(.headline)
+                        }
+                        
+                        Spacer()
+                        
+                        Button {
+                            Task {
+                                await viewModel.refresh()
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.headline)
+                        }
+                    }
+                }
+                
                 if viewModel.isLoading {
                     AppCard {
                         HStack {

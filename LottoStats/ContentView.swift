@@ -32,6 +32,13 @@ struct ContentView: View {
             .tabItem {
                 Label("Kupony", systemImage: "ticket.fill")
             }
+            
+            NavigationStack {
+                SettingsView(ticketViewModel: ticketViewModel)
+            }
+            .tabItem {
+                Label("Ustawienia", systemImage: "gearshape.fill")
+            }
         }
     }
 }
@@ -136,13 +143,34 @@ struct HomeView: View {
                 
                 AppCard {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Warstwa danych")
+                        Text("Źródło danych")
                             .font(.headline)
                         
-                        Text("Ekran Start korzysta z LottoDataViewModel, a kupony są obsługiwane przez TicketViewModel.")
-                            .font(.subheadline)
+                        Text(viewModel.dataSourceName)
+                            .font(.title3)
+                            .fontWeight(.bold)
+                        
+                        Text("Jeżeli w Secrets.plist jest poprawny klucz API, aplikacja używa prawdziwego API LOTTO. W przeciwnym razie działa na danych testowych.")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                }
+                
+                Button {
+                    Task {
+                        await viewModel.refresh()
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Odśwież dane")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .foregroundStyle(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 
                 Spacer()
@@ -172,6 +200,7 @@ struct HomeView: View {
             if viewModel.isLoading {
                 HStack {
                     ProgressView()
+                    
                     Text("Ładowanie danych...")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

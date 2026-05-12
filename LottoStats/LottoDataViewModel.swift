@@ -11,6 +11,10 @@ final class LottoDataViewModel: ObservableObject {
     
     private let repository: LottoRepository
     
+    var dataSourceName: String {
+        repository.dataSourceName
+    }
+    
     init() {
         self.repository = LottoRepository.shared
     }
@@ -20,6 +24,12 @@ final class LottoDataViewModel: ObservableObject {
     }
     
     func loadInitialData() async {
+        if draws.isEmpty {
+            await loadData(for: selectedGame)
+        }
+    }
+    
+    func refresh() async {
         await loadData(for: selectedGame)
     }
     

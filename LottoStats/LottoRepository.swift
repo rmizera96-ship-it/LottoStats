@@ -3,16 +3,28 @@ import Foundation
 struct LottoRepository {
     static let shared: LottoRepository = {
         if LottoAPIConfiguration.shouldUseRealAPI {
-            return LottoRepository(service: OpenLottoService())
+            return LottoRepository(
+                service: OpenLottoService(),
+                dataSourceName: "API LOTTO"
+            )
         } else {
-            return LottoRepository(service: MockLottoService())
+            return LottoRepository(
+                service: MockLottoService(),
+                dataSourceName: "Dane testowe"
+            )
         }
     }()
     
+    let dataSourceName: String
+    
     private let service: any LottoService
     
-    init(service: any LottoService) {
+    init(
+        service: any LottoService,
+        dataSourceName: String = "Nieznane źródło"
+    ) {
         self.service = service
+        self.dataSourceName = dataSourceName
     }
     
     private var allDraws: [DrawResult] {

@@ -121,6 +121,14 @@ final class TicketViewModel: ObservableObject {
         deleteTicket(ticketToDelete)
     }
     
+    func clearAllTickets() {
+        tickets.removeAll()
+        saveTickets()
+        
+        errorMessage = nil
+        successMessage = "Wszystkie kupony zostały usunięte."
+    }
+    
     private func deleteTicket(_ ticket: LottoTicket) {
         tickets.removeAll { $0.id == ticket.id }
         saveTickets()
