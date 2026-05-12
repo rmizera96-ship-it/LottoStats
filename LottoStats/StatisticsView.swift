@@ -44,7 +44,7 @@ struct StatisticsView: View {
                         .font(.title2)
                         .fontWeight(.bold)
                     
-                    Text("Ranking na podstawie historii losowań")
+                    Text("Ranking na podstawie historii losowań Lotto.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -59,34 +59,29 @@ struct StatisticsView: View {
     }
     
     private func frequencyRow(_ item: NumberFrequency) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("\(item.number)")
-                    .font(.headline)
-                    .frame(width: 42, height: 42)
-                    .background(Color.blue.opacity(0.15))
-                    .clipShape(Circle())
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Liczba \(item.number)")
-                        .font(.headline)
+        AppCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    NumberBall(number: item.number, style: .lotto, size: 42)
                     
-                    Text("Wystąpiła \(item.count) razy")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Liczba \(item.number)")
+                            .font(.headline)
+                        
+                        Text("Wystąpiła \(item.count) razy")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Text("\(item.count)x")
+                        .font(.headline)
                 }
                 
-                Spacer()
-                
-                Text("\(item.count)x")
-                    .font(.headline)
+                ProgressView(value: Double(item.count), total: Double(maxCount))
             }
-            
-            ProgressView(value: Double(item.count), total: Double(maxCount))
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
 

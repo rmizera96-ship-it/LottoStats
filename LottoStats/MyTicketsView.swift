@@ -107,33 +107,31 @@ struct MyTicketsView: View {
     }
     
     private var selectedDrawSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Kupon na losowanie")
-                .font(.headline)
-            
-            Text(gameName)
-                .font(.title2)
-                .fontWeight(.bold)
-            
-            if let firstDate = selectedDrawDates.first,
-               let lastDate = selectedDrawDates.last {
-                Text("\(firstDate.formatted(date: .long, time: .omitted)) - \(lastDate.formatted(date: .long, time: .omitted))")
-                    .font(.subheadline)
+        AppCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Kupon na losowanie")
+                    .font(.headline)
+                
+                Text(gameName)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                
+                if let firstDate = selectedDrawDates.first,
+                   let lastDate = selectedDrawDates.last {
+                    Text("\(firstDate.formatted(date: .long, time: .omitted)) - \(lastDate.formatted(date: .long, time: .omitted))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                
+                Text("Liczba losowań: \(selectedDrawCount)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                
+                Text("Kupon będzie sprawdzany tylko z wynikami przypisanych losowań.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            
-            Text("Liczba losowań: \(selectedDrawCount)")
-                .font(.caption)
-                .fontWeight(.semibold)
-            
-            Text("Kupon będzie sprawdzany tylko z wynikami przypisanych losowań.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
     private var drawCountSection: some View {
@@ -170,7 +168,7 @@ struct MyTicketsView: View {
     }
     
     private var plusSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        AppCard {
             Toggle(isOn: $includesPlus) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Lotto Plus")
@@ -182,9 +180,6 @@ struct MyTicketsView: View {
                 }
             }
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
     private var ticketsSection: some View {
@@ -193,13 +188,11 @@ struct MyTicketsView: View {
                 .font(.headline)
             
             if tickets.isEmpty {
-                Text("Nie masz jeszcze zapisanych kuponów.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                AppCard {
+                    Text("Nie masz jeszcze zapisanych kuponów.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 ForEach(tickets) { ticket in
                     TicketRow(ticket: ticket) {
@@ -334,47 +327,45 @@ struct TicketRow: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            topSection
-            
-            HStack {
-                Text(statusText)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(statusBackground)
-                    .clipShape(Capsule())
+        AppCard {
+            VStack(alignment: .leading, spacing: 12) {
+                topSection
                 
-                Text("\(ticket.drawDates.count) los.")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.blue.opacity(0.15))
-                    .clipShape(Capsule())
-                
-                if ticket.includesPlus {
-                    Text("Plus")
+                HStack {
+                    Text(statusText)
                         .font(.caption)
                         .fontWeight(.semibold)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Color.purple.opacity(0.2))
+                        .background(statusBackground)
                         .clipShape(Capsule())
+                    
+                    Text("\(ticket.drawDates.count) los.")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.blue.opacity(0.15))
+                        .clipShape(Capsule())
+                    
+                    if ticket.includesPlus {
+                        Text("Plus")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.purple.opacity(0.2))
+                            .clipShape(Capsule())
+                    }
+                    
+                    Spacer()
                 }
                 
-                Spacer()
+                numbersSection
+                
+                resultSection
             }
-            
-            numbersSection
-            
-            resultSection
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
     private var topSection: some View {
@@ -410,12 +401,11 @@ struct TicketRow: View {
     private var numbersSection: some View {
         HStack {
             ForEach(ticket.numbers, id: \.self) { number in
-                Text("\(number)")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .frame(width: 34, height: 34)
-                    .background(numberBackground(number))
-                    .clipShape(Circle())
+                NumberBall(
+                    number: number,
+                    style: numberStyle(number),
+                    size: 34
+                )
             }
         }
     }
@@ -463,18 +453,18 @@ struct TicketRow: View {
         }
     }
     
-    private func numberBackground(_ number: Int) -> Color {
+    private func numberStyle(_ number: Int) -> NumberBallStyle {
         let isMatchedInAnyDraw = matchingResults.contains { result in
             result.numbers.contains(number) ||
             (ticket.includesPlus && (result.plusNumbers?.contains(number) ?? false))
         }
         
         if isMatchedInAnyDraw {
-            return Color.green.opacity(0.3)
+            return .matched
         } else if matchingResults.isEmpty {
-            return Color.blue.opacity(0.15)
+            return .lotto
         } else {
-            return Color.gray.opacity(0.15)
+            return .inactive
         }
     }
 }

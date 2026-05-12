@@ -4,37 +4,68 @@ struct HistoryView: View {
     let draws = DrawResult.samples
     
     var body: some View {
-        List {
-            ForEach(draws) { draw in
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(draw.gameName)
-                                .font(.headline)
-                            
-                            Text(draw.drawDate.formatted(date: .long, time: .omitted))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(draws) { draw in
+                    DrawHistoryRow(draw: draw)
+                }
+            }
+            .padding()
+        }
+        .navigationTitle("Historia losowań")
+    }
+}
+
+struct DrawHistoryRow: View {
+    let draw: DrawResult
+    
+    var body: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(draw.gameName)
+                            .font(.headline)
                         
-                        Spacer()
+                        Text(draw.drawDate.formatted(date: .long, time: .omitted))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    
+                    Spacer()
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Lotto")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
                     
                     HStack {
                         ForEach(draw.numbers, id: \.self) { number in
-                            Text("\(number)")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .frame(width: 34, height: 34)
-                                .background(Color.blue.opacity(0.15))
-                                .clipShape(Circle())
+                            NumberBall(number: number, style: .lotto, size: 34)
                         }
                     }
                 }
-                .padding(.vertical, 8)
+                
+                if let plusNumbers = draw.plusNumbers {
+                    Divider()
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Lotto Plus")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                        
+                        HStack {
+                            ForEach(plusNumbers, id: \.self) { number in
+                                NumberBall(number: number, style: .plus, size: 34)
+                            }
+                        }
+                    }
+                }
             }
         }
-        .navigationTitle("Historia losowań")
     }
 }
 
