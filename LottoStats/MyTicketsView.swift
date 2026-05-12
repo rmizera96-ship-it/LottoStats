@@ -7,7 +7,8 @@ struct MyTicketsView: View {
     @State private var errorMessage: String?
     @State private var successMessage: String?
     
-    private let latestDraw = DrawResult.sample
+    private let gameName = "Lotto"
+    private let selectedDrawDate = DrawResult.nextDrawDate
     
     var body: some View {
         ScrollView {
@@ -15,7 +16,7 @@ struct MyTicketsView: View {
                 
                 headerView
                 
-                latestDrawSection
+                selectedDrawSection
                 
                 inputSection
                 
@@ -74,32 +75,26 @@ struct MyTicketsView: View {
                 .font(.title2)
                 .fontWeight(.bold)
             
-            Text("Wpisz 6 liczb od 1 do 49 albo wylosuj je automatycznie.")
+            Text("Kupon zostanie przypisany do konkretnego losowania.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
     }
     
-    private var latestDrawSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Ostatnie losowanie")
+    private var selectedDrawSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Kupon na losowanie")
                 .font(.headline)
             
-            Text(latestDraw.drawDate.formatted(date: .long, time: .omitted))
-                .font(.caption)
+            Text(gameName)
+                .font(.title2)
+                .fontWeight(.bold)
+            
+            Text(selectedDrawDate.formatted(date: .long, time: .omitted))
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
             
-            HStack {
-                ForEach(latestDraw.numbers, id: \.self) { number in
-                    Text("\(number)")
-                        .font(.headline)
-                        .frame(width: 40, height: 40)
-                        .background(Color.green.opacity(0.2))
-                        .clipShape(Circle())
-                }
-            }
-            
-            Text("Te liczby będą porównywane z Twoimi kuponami.")
+            Text("Po tym losowaniu kupon zostanie sprawdzony tylko z wynikiem z tej daty.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -143,7 +138,7 @@ struct MyTicketsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
             } else {
                 ForEach(tickets) { ticket in
-                    TicketRow(ticket: ticket, latestDraw: latestDraw)
+                    TicketRow(ticket: ticket)
                 }
             }
         }
@@ -175,12 +170,17 @@ struct MyTicketsView: View {
         }
         
         let sortedNumbers = numbers.sorted()
-        let newTicket = LottoTicket(numbers: sortedNumbers)
+        
+        let newTicket = LottoTicket(
+            gameName: gameName,
+            numbers: sortedNumbers,
+            drawDate: selectedDrawDate
+        )
         
         tickets.insert(newTicket, at: 0)
         numberInputs = Array(repeating: "", count: 6)
         errorMessage = nil
-        successMessage = "Kupon został dodany."
+        successMessage = "Kupon został dodany na konkretne losowanie."
     }
     
     private func generateRandomTicket() {
@@ -197,14 +197,40 @@ struct MyTicketsView: View {
 
 struct TicketRow: View {
     let ticket: LottoTicket
-    let latestDraw: DrawResult
+    
+    private var matchingResult: DrawResult? {
+        DrawResult.result(for: ticket.gameName, drawDate: ticket.drawDate)
+    }
     
     private var matchedNumbers: [Int] {
-        let winningNumbers = Set(latestDraw.numbers)
+        guard let matchingResult else {
+            return []
+        }
+        
+        let winningNumbers = Set(matchingResult.numbers)
         return ticket.numbers.filter { winningNumbers.contains($0) }
     }
     
+    private var statusText: String {
+        if matchingResult != nil {
+            return "Sprawdzony"
+        }
+        
+        let today = Calendar.current.startOfDay(for: Date())
+        let drawDay = Calendar.current.startOfDay(for: ticket.drawDate)
+        
+        if drawDay >= today {
+            return "Aktywny"
+        } else {
+            return "Oczekuje na wynik"
+        }
+    }
+    
     private var resultText: String {
+        guard matchingResult != nil else {
+            return "Kupon nie został jeszcze sprawdzony"
+        }
+        
         switch matchedNumbers.count {
         case 0:
             return "Brak trafień"
@@ -218,24 +244,29 @@ struct TicketRow: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(ticket.createdAt.formatted(date: .long, time: .shortened))
+                    Text(ticket.gameName)
+                        .font(.headline)
+                    
+                    Text("Losowanie: \(ticket.drawDate.formatted(date: .long, time: .omitted))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     
-                    Text(resultText)
-                        .font(.headline)
+                    Text("Dodano: \(ticket.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 
                 Spacer()
                 
-                Text("\(matchedNumbers.count)/6")
-                    .font(.headline)
-                    .padding(.horizontal, 12)
+                Text(statusText)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.green.opacity(0.2))
+                    .background(statusBackground)
                     .clipShape(Capsule())
             }
             
@@ -245,13 +276,17 @@ struct TicketRow: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .frame(width: 34, height: 34)
-                        .background(isMatched(number) ? Color.green.opacity(0.3) : Color.blue.opacity(0.15))
+                        .background(numberBackground(number))
                         .clipShape(Circle())
                 }
             }
             
-            if !matchedNumbers.isEmpty {
-                Text("Trafione: \(matchedNumbers.map(String.init).joined(separator: ", "))")
+            Text(resultText)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            
+            if matchingResult != nil {
+                Text("Trafione: \(matchedNumbers.isEmpty ? "brak" : matchedNumbers.map(String.init).joined(separator: ", "))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -262,16 +297,47 @@ struct TicketRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
-    private func isMatched(_ number: Int) -> Bool {
-        latestDraw.numbers.contains(number)
+    private var statusBackground: Color {
+        if matchingResult != nil {
+            return Color.green.opacity(0.2)
+        }
+        
+        let today = Calendar.current.startOfDay(for: Date())
+        let drawDay = Calendar.current.startOfDay(for: ticket.drawDate)
+        
+        if drawDay >= today {
+            return Color.blue.opacity(0.2)
+        } else {
+            return Color.orange.opacity(0.2)
+        }
+    }
+    
+    private func numberBackground(_ number: Int) -> Color {
+        guard matchingResult != nil else {
+            return Color.blue.opacity(0.15)
+        }
+        
+        if matchedNumbers.contains(number) {
+            return Color.green.opacity(0.3)
+        } else {
+            return Color.gray.opacity(0.15)
+        }
     }
 }
 
 #Preview {
     NavigationStack {
         MyTicketsView(tickets: .constant([
-            LottoTicket(numbers: [3, 12, 19, 25, 34, 47]),
-            LottoTicket(numbers: [1, 2, 3, 4, 5, 6])
+            LottoTicket(
+                gameName: "Lotto",
+                numbers: [3, 12, 19, 25, 34, 47],
+                drawDate: DrawResult.sample.drawDate
+            ),
+            LottoTicket(
+                gameName: "Lotto",
+                numbers: [1, 2, 3, 4, 5, 6],
+                drawDate: DrawResult.nextDrawDate
+            )
         ]))
     }
 }

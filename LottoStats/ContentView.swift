@@ -12,6 +12,19 @@ struct ContentView: View {
         return mostFrequent.map { "\($0.number)" } ?? "-"
     }
     
+    private var activeTicketsCount: Int {
+        tickets.filter { ticket in
+            let today = Calendar.current.startOfDay(for: Date())
+            let drawDay = Calendar.current.startOfDay(for: ticket.drawDate)
+            let hasResult = DrawResult.result(
+                for: ticket.gameName,
+                drawDate: ticket.drawDate
+            ) != nil
+            
+            return drawDay >= today && !hasResult
+        }.count
+    }
+    
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -63,9 +76,9 @@ struct ContentView: View {
                         )
                         
                         InfoCard(
-                            title: "Twoje kupony",
-                            value: "\(tickets.count)",
-                            subtitle: "Liczba zapisanych kuponów"
+                            title: "Aktywne kupony",
+                            value: "\(activeTicketsCount)",
+                            subtitle: "Kupony na przyszłe losowania"
                         )
                     }
                     
