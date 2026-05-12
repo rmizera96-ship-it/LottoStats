@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var selectedGame = "Lotto"
-    @State private var tickets = LottoTicket.samples
+    @State private var tickets: [LottoTicket] = []
     
     let games = ["Lotto", "Mini Lotto", "Eurojackpot"]
     let latestDraw = DrawResult.sample
@@ -22,6 +22,15 @@ struct ContentView: View {
             ) != nil
             
             return drawDay >= today && !hasResult
+        }.count
+    }
+    
+    private var checkedTicketsCount: Int {
+        tickets.filter { ticket in
+            DrawResult.result(
+                for: ticket.gameName,
+                drawDate: ticket.drawDate
+            ) != nil
         }.count
     }
     
@@ -80,6 +89,12 @@ struct ContentView: View {
                             value: "\(activeTicketsCount)",
                             subtitle: "Kupony na przyszłe losowania"
                         )
+                        
+                        InfoCard(
+                            title: "Sprawdzone kupony",
+                            value: "\(checkedTicketsCount)",
+                            subtitle: "Kupony, dla których mamy wynik losowania"
+                        )
                     }
                     
                     Spacer()
@@ -87,6 +102,12 @@ struct ContentView: View {
                 .padding()
             }
             .navigationTitle("Start")
+            .onAppear {
+                tickets = TicketStorage.load()
+            }
+            .onChange(of: tickets) { newTickets in
+                TicketStorage.save(newTickets)
+            }
         }
     }
     

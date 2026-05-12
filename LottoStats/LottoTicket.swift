@@ -1,6 +1,6 @@
 import Foundation
 
-struct LottoTicket: Identifiable {
+struct LottoTicket: Identifiable, Codable, Equatable {
     let id: UUID
     let gameName: String
     let numbers: [Int]
