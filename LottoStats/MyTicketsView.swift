@@ -7,11 +7,15 @@ struct MyTicketsView: View {
     @State private var errorMessage: String?
     @State private var successMessage: String?
     
+    private let latestDraw = DrawResult.sample
+    
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 
                 headerView
+                
+                latestDrawSection
                 
                 inputSection
                 
@@ -76,6 +80,35 @@ struct MyTicketsView: View {
         }
     }
     
+    private var latestDrawSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Ostatnie losowanie")
+                .font(.headline)
+            
+            Text(latestDraw.drawDate.formatted(date: .long, time: .omitted))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            
+            HStack {
+                ForEach(latestDraw.numbers, id: \.self) { number in
+                    Text("\(number)")
+                        .font(.headline)
+                        .frame(width: 40, height: 40)
+                        .background(Color.green.opacity(0.2))
+                        .clipShape(Circle())
+                }
+            }
+            
+            Text("Te liczby będą porównywane z Twoimi kuponami.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+    
     private var inputSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Twoje liczby")
@@ -110,7 +143,7 @@ struct MyTicketsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
             } else {
                 ForEach(tickets) { ticket in
-                    TicketRow(ticket: ticket)
+                    TicketRow(ticket: ticket, latestDraw: latestDraw)
                 }
             }
         }
@@ -164,12 +197,47 @@ struct MyTicketsView: View {
 
 struct TicketRow: View {
     let ticket: LottoTicket
+    let latestDraw: DrawResult
+    
+    private var matchedNumbers: [Int] {
+        let winningNumbers = Set(latestDraw.numbers)
+        return ticket.numbers.filter { winningNumbers.contains($0) }
+    }
+    
+    private var resultText: String {
+        switch matchedNumbers.count {
+        case 0:
+            return "Brak trafień"
+        case 1:
+            return "1 trafienie"
+        case 2...4:
+            return "\(matchedNumbers.count) trafienia"
+        default:
+            return "\(matchedNumbers.count) trafień"
+        }
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(ticket.createdAt.formatted(date: .long, time: .shortened))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(ticket.createdAt.formatted(date: .long, time: .shortened))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    Text(resultText)
+                        .font(.headline)
+                }
+                
+                Spacer()
+                
+                Text("\(matchedNumbers.count)/6")
+                    .font(.headline)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.green.opacity(0.2))
+                    .clipShape(Capsule())
+            }
             
             HStack {
                 ForEach(ticket.numbers, id: \.self) { number in
@@ -177,9 +245,15 @@ struct TicketRow: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .frame(width: 34, height: 34)
-                        .background(Color.blue.opacity(0.15))
+                        .background(isMatched(number) ? Color.green.opacity(0.3) : Color.blue.opacity(0.15))
                         .clipShape(Circle())
                 }
+            }
+            
+            if !matchedNumbers.isEmpty {
+                Text("Trafione: \(matchedNumbers.map(String.init).joined(separator: ", "))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -187,16 +261,17 @@ struct TicketRow: View {
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
+    
+    private func isMatched(_ number: Int) -> Bool {
+        latestDraw.numbers.contains(number)
+    }
 }
 
 #Preview {
     NavigationStack {
-        MyTicketsView(tickets: .constant([]))
+        MyTicketsView(tickets: .constant([
+            LottoTicket(numbers: [3, 12, 19, 25, 34, 47]),
+            LottoTicket(numbers: [1, 2, 3, 4, 5, 6])
+        ]))
     }
-}//
-//  MyTicketView.swift
-//  LottoStats
-//
-//  Created by Rafal Mizera on 12/05/2026.
-//
-
+}
