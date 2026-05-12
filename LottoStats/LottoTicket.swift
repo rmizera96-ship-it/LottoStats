@@ -9,9 +9,13 @@ struct LottoTicket: Identifiable, Codable, Equatable {
     let includesPlus: Bool
     let createdAt: Date
     
+    var game: LottoGame {
+        LottoGame.fromDisplayName(gameName) ?? .lotto
+    }
+    
     init(
         id: UUID = UUID(),
-        gameName: String = "Lotto",
+        gameName: String = LottoGame.lotto.displayName,
         numbers: [Int],
         drawDate: Date,
         drawDates: [Date]? = nil,

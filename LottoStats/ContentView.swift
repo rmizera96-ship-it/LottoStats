@@ -43,14 +43,26 @@ struct ContentView: View {
 }
 
 struct HomeView: View {
-    @State private var selectedGame = "Lotto"
+    @State private var selectedGame: LottoGame = .lotto
     
     let tickets: [LottoTicket]
-    let games = ["Lotto", "Mini Lotto", "Eurojackpot"]
-    let latestDraw = DrawResult.sample
+    
+    private let repository = LottoRepository.shared
+    
+    private var games: [LottoGame] {
+        repository.availableGames()
+    }
+    
+    private var latestDraw: DrawResult? {
+        repository.latestDraw(for: selectedGame)
+    }
+    
+    private var selectedGameDraws: [DrawResult] {
+        repository.draws(for: selectedGame)
+    }
     
     private var mostFrequentNumberText: String {
-        let mostFrequent = NumberFrequency.calculate(from: DrawResult.samples).first
+        let mostFrequent = NumberFrequency.calculate(from: selectedGameDraws).first
         return mostFrequent.map { "\($0.number)" } ?? "-"
     }
     
@@ -59,7 +71,7 @@ struct HomeView: View {
             ticket.drawDates.contains { drawDate in
                 let today = Calendar.current.startOfDay(for: Date())
                 let drawDay = Calendar.current.startOfDay(for: drawDate)
-                let hasResult = DrawResult.result(
+                let hasResult = repository.result(
                     for: ticket.gameName,
                     drawDate: drawDate
                 ) != nil
@@ -72,7 +84,7 @@ struct HomeView: View {
     private var checkedTicketsCount: Int {
         tickets.filter { ticket in
             ticket.drawDates.contains { drawDate in
-                DrawResult.result(
+                repository.result(
                     for: ticket.gameName,
                     drawDate: drawDate
                 ) != nil
@@ -91,8 +103,9 @@ struct HomeView: View {
                 headerView
                 
                 Picker("Gra", selection: $selectedGame) {
-                    ForEach(games, id: \.self) { game in
-                        Text(game)
+                    ForEach(games) { game in
+                        Text(game.displayName)
+                            .tag(game)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -103,7 +116,7 @@ struct HomeView: View {
                     InfoCard(
                         title: "Najczęstsza liczba",
                         value: mostFrequentNumberText,
-                        subtitle: "Na podstawie historii losowań"
+                        subtitle: "Na podstawie historii wybranej gry"
                     )
                     
                     InfoCard(
@@ -127,10 +140,10 @@ struct HomeView: View {
                 
                 AppCard {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Nawigacja")
+                        Text("Warstwa danych")
                             .font(.headline)
                         
-                        Text("Użyj dolnego menu, żeby przejść do historii losowań, statystyk albo swoich kuponów.")
+                        Text("Wyniki są teraz pobierane przez LottoRepository. Na razie zwraca dane testowe, ale później podmienimy je na API.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -157,35 +170,47 @@ struct HomeView: View {
     
     private var latestDrawCard: some View {
         AppCard {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Ostatnie losowanie")
-                    .font(.headline)
-                
-                Text(latestDraw.gameName)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
-                Text(latestDraw.drawDate.formatted(date: .long, time: .omitted))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                
-                HStack {
-                    ForEach(latestDraw.numbers, id: \.self) { number in
-                        NumberBall(number: number, style: .lotto)
-                    }
-                }
-                
-                if let plusNumbers = latestDraw.plusNumbers {
-                    Divider()
-                    
-                    Text("Lotto Plus")
+            if let latestDraw {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Ostatnie losowanie")
                         .font(.headline)
                     
+                    Text(latestDraw.gameName)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Text(latestDraw.drawDate.formatted(date: .long, time: .omitted))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    
                     HStack {
-                        ForEach(plusNumbers, id: \.self) { number in
-                            NumberBall(number: number, style: .plus)
+                        ForEach(latestDraw.numbers, id: \.self) { number in
+                            NumberBall(number: number, style: .lotto)
                         }
                     }
+                    
+                    if let plusNumbers = latestDraw.plusNumbers,
+                       selectedGame.supportsPlus {
+                        Divider()
+                        
+                        Text("Lotto Plus")
+                            .font(.headline)
+                        
+                        HStack {
+                            ForEach(plusNumbers, id: \.self) { number in
+                                NumberBall(number: number, style: .plus)
+                            }
+                        }
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Brak danych")
+                        .font(.headline)
+                    
+                    Text("Dla gry \(selectedGame.displayName) nie mamy jeszcze przykładowych wyników.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
             }
         }

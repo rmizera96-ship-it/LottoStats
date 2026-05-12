@@ -1,13 +1,41 @@
 import SwiftUI
 
 struct HistoryView: View {
-    let draws = DrawResult.samples
+    @State private var selectedGame: LottoGame = .lotto
+    
+    private let repository = LottoRepository.shared
+    
+    private var draws: [DrawResult] {
+        repository.draws(for: selectedGame)
+    }
     
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(draws) { draw in
-                    DrawHistoryRow(draw: draw)
+            VStack(alignment: .leading, spacing: 16) {
+                
+                Picker("Gra", selection: $selectedGame) {
+                    ForEach(repository.availableGames()) { game in
+                        Text(game.displayName)
+                            .tag(game)
+                    }
+                }
+                .pickerStyle(.segmented)
+                
+                if draws.isEmpty {
+                    AppCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Brak historii")
+                                .font(.headline)
+                            
+                            Text("Dla gry \(selectedGame.displayName) nie mamy jeszcze danych testowych.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    ForEach(draws) { draw in
+                        DrawHistoryRow(draw: draw)
+                    }
                 }
             }
             .padding()
@@ -48,7 +76,8 @@ struct DrawHistoryRow: View {
                     }
                 }
                 
-                if let plusNumbers = draw.plusNumbers {
+                if let plusNumbers = draw.plusNumbers,
+                   draw.game.supportsPlus {
                     Divider()
                     
                     VStack(alignment: .leading, spacing: 8) {

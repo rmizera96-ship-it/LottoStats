@@ -25,7 +25,13 @@ struct NumberFrequency: Identifiable {
 }
 
 struct StatisticsView: View {
-    let draws = DrawResult.samples
+    @State private var selectedGame: LottoGame = .lotto
+    
+    private let repository = LottoRepository.shared
+    
+    private var draws: [DrawResult] {
+        repository.draws(for: selectedGame)
+    }
     
     private var frequencies: [NumberFrequency] {
         NumberFrequency.calculate(from: draws)
@@ -44,13 +50,34 @@ struct StatisticsView: View {
                         .font(.title2)
                         .fontWeight(.bold)
                     
-                    Text("Ranking na podstawie historii losowań Lotto.")
+                    Text("Ranking na podstawie historii wybranej gry.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 
-                ForEach(frequencies) { item in
-                    frequencyRow(item)
+                Picker("Gra", selection: $selectedGame) {
+                    ForEach(repository.availableGames()) { game in
+                        Text(game.displayName)
+                            .tag(game)
+                    }
+                }
+                .pickerStyle(.segmented)
+                
+                if frequencies.isEmpty {
+                    AppCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Brak statystyk")
+                                .font(.headline)
+                            
+                            Text("Dla gry \(selectedGame.displayName) nie mamy jeszcze danych testowych.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    ForEach(frequencies) { item in
+                        frequencyRow(item)
+                    }
                 }
             }
             .padding()
