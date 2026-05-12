@@ -465,6 +465,17 @@ struct TicketRow: View {
         ticket.lines.contains { !$0.extraNumbers.isEmpty }
     }
     
+    private var isForToday: Bool {
+        let today = Calendar.current.startOfDay(for: Date())
+        
+        return ticket.drawDates.contains { drawDate in
+            Calendar.current.isDate(
+                Calendar.current.startOfDay(for: drawDate),
+                inSameDayAs: today
+            )
+        }
+    }
+    
     var body: some View {
         AppCard {
             VStack(alignment: .leading, spacing: 12) {
@@ -544,6 +555,16 @@ struct TicketRow: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(Color.purple.opacity(0.2))
+                    .clipShape(Capsule())
+            }
+            
+            if isForToday {
+                Text("Dzisiaj")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.green.opacity(0.2))
                     .clipShape(Capsule())
             }
             

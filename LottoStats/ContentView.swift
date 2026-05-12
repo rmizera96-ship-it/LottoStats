@@ -50,6 +50,7 @@ struct HomeView: View {
     
     private let repository = LottoRepository.shared
     private let ticketChecker = TicketChecker()
+    private let bestResultCalculator = BestResultCalculator()
     
     private var games: [LottoGame] {
         repository.availableGames()
@@ -186,6 +187,41 @@ struct HomeView: View {
         .sorted { $0.date < $1.date }
     }
     
+    private var todayTickets: [LottoTicket] {
+        let today = Calendar.current.startOfDay(for: Date())
+        
+        return tickets.filter { ticket in
+            ticket.drawDates.contains { drawDate in
+                Calendar.current.isDate(
+                    Calendar.current.startOfDay(for: drawDate),
+                    inSameDayAs: today
+                )
+            }
+        }
+    }
+    
+    private var todayTicketsLinesCount: Int {
+        todayTickets.reduce(0) { partialResult, ticket in
+            partialResult + ticket.lines.count
+        }
+    }
+    
+    private var todayTicketsTitle: String {
+        if todayTickets.isEmpty {
+            return "Brak kuponów na dzisiaj"
+        }
+        
+        if todayTickets.count == 1 {
+            return "Masz 1 kupon na dzisiaj"
+        }
+        
+        return "Masz \(todayTickets.count) kuponów na dzisiaj"
+    }
+    
+    private var bestResult: UserBestResult? {
+        bestResultCalculator.calculate(from: tickets)
+    }
+    
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -203,6 +239,10 @@ struct HomeView: View {
                 nextDrawCard
                 
                 upcomingDrawsCard
+                
+                todayTicketsCard
+                
+                bestResultCard
                 
                 latestDrawCard
                 
@@ -360,6 +400,154 @@ struct HomeView: View {
                             Divider()
                         }
                     }
+                }
+            }
+        }
+    }
+    
+    private var todayTicketsCard: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Kupony na dzisiaj")
+                            .font(.headline)
+                        
+                        Text(todayTicketsTitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    if !todayTickets.isEmpty {
+                        Text("Dzisiaj")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.green.opacity(0.2))
+                            .clipShape(Capsule())
+                    }
+                }
+                
+                if todayTickets.isEmpty {
+                    Text("Nie masz zapisanych kuponów przypisanych do dzisiejszych losowań.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(todayTickets.count)")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                            
+                            Text("Kupony")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(todayTicketsLinesCount)")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                            
+                            Text("Zestawy liczb")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    
+                    Divider()
+                    
+                    ForEach(Array(todayTickets.prefix(3))) { ticket in
+                        NavigationLink {
+                            TicketDetailView(
+                                ticket: ticket,
+                                checkResult: ticketChecker.check(ticket: ticket)
+                            )
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(ticket.gameName)
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                    
+                                    Text("\(ticket.lines.count) zest. • \(ticket.drawDates.count) los.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                if ticket.includesPlus {
+                                    Text("Plus")
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.purple.opacity(0.2))
+                                        .clipShape(Capsule())
+                                }
+                                
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                    
+                    if todayTickets.count > 3 {
+                        Text("I jeszcze \(todayTickets.count - 3) kuponów w zakładce Kupony.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+    
+    private var bestResultCard: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Najlepszy wynik")
+                            .font(.headline)
+                        
+                        Text("Najwięcej trafień na zapisanych kuponach.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Image(systemName: "star.fill")
+                        .font(.title2)
+                        .foregroundStyle(.yellow)
+                }
+                
+                if let bestResult {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(bestResult.titleText)
+                            .font(.title3)
+                            .fontWeight(.bold)
+                        
+                        Text(bestResult.drawDate.formatted(date: .long, time: .omitted))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        Text(bestResult.scoreText)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+                } else {
+                    Text("Brak sprawdzonych kuponów. Gdy pojawią się wyniki dla zapisanych kuponów, pokażemy tutaj najlepsze trafienie.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
