@@ -83,7 +83,7 @@ struct MyTicketsView: View {
                 .font(.title2)
                 .fontWeight(.bold)
             
-            Text("Jeden kupon może zawierać kilka zestawów liczb, tak jak na prawdziwym kuponie Lotto.")
+            Text("Wybierz liczby klikając w kulki. Jeden kupon może zawierać kilka zestawów liczb.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -155,48 +155,48 @@ struct MyTicketsView: View {
     }
     
     private var mainNumbersInputSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Liczby główne")
-                .font(.headline)
-            
-            Text("Wybierz \(viewModel.currentRules.mainNumbersCount) liczb z zakresu \(viewModel.currentRules.mainNumberRange.lowerBound)-\(viewModel.currentRules.mainNumberRange.upperBound).")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            
-            HStack {
-                ForEach(viewModel.numberInputs.indices, id: \.self) { index in
-                    TextField("\(index + 1)", text: $viewModel.numberInputs[index])
-                        .keyboardType(.numberPad)
-                        .multilineTextAlignment(.center)
+        AppCard {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Liczby")
                         .font(.headline)
-                        .frame(width: 46, height: 46)
-                        .background(Color(.secondarySystemBackground))
-                        .clipShape(Circle())
+                    
+                    Text(viewModel.mainSelectionProgressText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
+                TicketNumberSelectionGrid(
+                    numbers: Array(viewModel.currentRules.mainNumberRange),
+                    selectedNumbers: viewModel.selectedMainNumbers,
+                    ballStyle: .lotto
+                ) { number in
+                    viewModel.toggleMainNumber(number)
                 }
             }
         }
     }
     
     private var extraNumbersInputSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Euroliczby")
-                .font(.headline)
-            
-            if let extraRange = viewModel.currentRules.extraNumberRange {
-                Text("Wybierz \(viewModel.currentRules.extraNumbersCount) euroliczby z zakresu \(extraRange.lowerBound)-\(extraRange.upperBound).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            
-            HStack {
-                ForEach(viewModel.extraNumberInputs.indices, id: \.self) { index in
-                    TextField("\(index + 1)", text: $viewModel.extraNumberInputs[index])
-                        .keyboardType(.numberPad)
-                        .multilineTextAlignment(.center)
+        AppCard {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Euroliczby")
                         .font(.headline)
-                        .frame(width: 46, height: 46)
-                        .background(Color.purple.opacity(0.15))
-                        .clipShape(Circle())
+                    
+                    Text(viewModel.extraSelectionProgressText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
+                if let extraRange = viewModel.currentRules.extraNumberRange {
+                    TicketNumberSelectionGrid(
+                        numbers: Array(extraRange),
+                        selectedNumbers: viewModel.selectedExtraNumbers,
+                        ballStyle: .euro
+                    ) { number in
+                        viewModel.toggleExtraNumber(number)
+                    }
                 }
             }
         }
@@ -219,7 +219,7 @@ struct MyTicketsView: View {
     
     private var inputActionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Aktualnie wpisane liczby możesz dodać jako kolejny zestaw albo od razu zapisać cały kupon.")
+            Text("Aktualnie zaznaczone liczby możesz dodać jako kolejny zestaw albo od razu zapisać cały kupon.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             
@@ -303,7 +303,7 @@ struct MyTicketsView: View {
                             .font(.subheadline)
                             .fontWeight(.semibold)
                         
-                        Text("Wpisz liczby i kliknij „Dodaj zestaw do kuponu”. Możesz też od razu kliknąć „Zapisz kupon” — aktualnie wpisane liczby zostaną zapisane jako pierwszy zestaw.")
+                        Text("Zaznacz liczby i kliknij „Dodaj zestaw do kuponu”. Możesz też od razu kliknąć „Zapisz kupon” — aktualnie zaznaczone liczby zostaną zapisane jako pierwszy zestaw.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -425,6 +425,151 @@ struct MyTicketsView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+enum TicketPickerBallStyle {
+    case lotto
+    case euro
+}
+
+struct TicketNumberSelectionGrid: View {
+    let numbers: [Int]
+    let selectedNumbers: [Int]
+    let ballStyle: TicketPickerBallStyle
+    let onTap: (Int) -> Void
+    
+    private let columns = Array(
+        repeating: GridItem(.flexible(), spacing: 10),
+        count: 7
+    )
+    
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(numbers, id: \.self) { number in
+                Button {
+                    onTap(number)
+                } label: {
+                    SelectableLottoBall(
+                        number: number,
+                        isSelected: selectedNumbers.contains(number),
+                        style: ballStyle
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+struct SelectableLottoBall: View {
+    let number: Int
+    let isSelected: Bool
+    let style: TicketPickerBallStyle
+    
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(ballBackground)
+                .frame(width: 46, height: 46)
+                .overlay(
+                    Circle()
+                        .stroke(ballBorder, lineWidth: isSelected ? 0 : 1)
+                )
+                .shadow(
+                    color: isSelected ? .black.opacity(0.18) : .black.opacity(0.08),
+                    radius: isSelected ? 6 : 3,
+                    x: 0,
+                    y: isSelected ? 3 : 2
+                )
+            
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: highlightColors,
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 30, height: 18)
+                .offset(x: -6, y: -10)
+                .opacity(isSelected ? 0.28 : 0.16)
+            
+            Text("\(number)")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(numberColor)
+        }
+        .scaleEffect(isSelected ? 1.03 : 1.0)
+        .animation(.easeInOut(duration: 0.15), value: isSelected)
+    }
+    
+    private var ballBackground: LinearGradient {
+        if isSelected {
+            switch style {
+            case .lotto:
+                return LinearGradient(
+                    colors: [
+                        Color(red: 1.0, green: 0.92, blue: 0.28),
+                        Color(red: 0.98, green: 0.72, blue: 0.06)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .euro:
+                return LinearGradient(
+                    colors: [
+                        Color(red: 0.46, green: 0.35, blue: 1.0),
+                        Color(red: 0.24, green: 0.10, blue: 0.90)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+        } else {
+            return LinearGradient(
+                colors: [
+                    Color.white,
+                    Color(.systemGray6)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+    
+    private var highlightColors: [Color] {
+        if isSelected {
+            return [
+                Color.white.opacity(0.9),
+                Color.white.opacity(0.05)
+            ]
+        } else {
+            return [
+                Color.white.opacity(0.75),
+                Color.white.opacity(0.05)
+            ]
+        }
+    }
+    
+    private var ballBorder: Color {
+        if isSelected {
+            return .clear
+        } else {
+            return Color(.systemGray5)
+        }
+    }
+    
+    private var numberColor: Color {
+        if isSelected {
+            switch style {
+            case .lotto:
+                return Color.black.opacity(0.8)
+            case .euro:
+                return .white
+            }
+        } else {
+            return Color(.label)
         }
     }
 }

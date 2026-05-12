@@ -85,7 +85,7 @@ final class TicketViewModel: ObservableObject {
     @Published var selectedStatusFilter: TicketStatusFilter = .all
     @Published var selectedGameFilter: TicketGameFilter = .all
     
-    @Published var numberInputs = Array(repeating: "", count: 6)
+    @Published var numberInputs: [String] = []
     @Published var extraNumberInputs: [String] = []
     @Published var draftLines: [TicketLine] = []
     @Published var includesPlus = false
@@ -128,6 +128,26 @@ final class TicketViewModel: ObservableObject {
             for: selectedGame,
             count: selectedDrawCount
         )
+    }
+    
+    var selectedMainNumbers: [Int] {
+        numbers(from: numberInputs)
+    }
+    
+    var selectedExtraNumbers: [Int] {
+        numbers(from: extraNumberInputs)
+    }
+    
+    var mainSelectionProgressText: String {
+        "Wybrano \(selectedMainNumbers.count)/\(currentRules.mainNumbersCount) liczb z zakresu \(currentRules.mainNumberRange.lowerBound)-\(currentRules.mainNumberRange.upperBound)."
+    }
+    
+    var extraSelectionProgressText: String {
+        guard let extraRange = currentRules.extraNumberRange else {
+            return "Brak dodatkowych liczb dla tej gry."
+        }
+        
+        return "Wybrano \(selectedExtraNumbers.count)/\(currentRules.extraNumbersCount) euroliczb z zakresu \(extraRange.lowerBound)-\(extraRange.upperBound)."
     }
     
     var filteredTickets: [LottoTicket] {
@@ -173,6 +193,60 @@ final class TicketViewModel: ObservableObject {
     
     func checkResult(for ticket: LottoTicket) -> TicketCheckResult {
         ticketChecker.check(ticket: ticket)
+    }
+    
+    func isMainNumberSelected(_ number: Int) -> Bool {
+        selectedMainNumbers.contains(number)
+    }
+    
+    func isExtraNumberSelected(_ number: Int) -> Bool {
+        selectedExtraNumbers.contains(number)
+    }
+    
+    func toggleMainNumber(_ number: Int) {
+        var selectedNumbers = selectedMainNumbers
+        
+        if selectedNumbers.contains(number) {
+            selectedNumbers.removeAll { $0 == number }
+            numberInputs = selectedNumbers.sorted().map(String.init)
+            errorMessage = nil
+            successMessage = nil
+            return
+        }
+        
+        guard selectedNumbers.count < currentRules.mainNumbersCount else {
+            errorMessage = "Możesz wybrać maksymalnie \(currentRules.mainNumbersCount) liczb głównych."
+            successMessage = nil
+            return
+        }
+        
+        selectedNumbers.append(number)
+        numberInputs = selectedNumbers.sorted().map(String.init)
+        errorMessage = nil
+        successMessage = nil
+    }
+    
+    func toggleExtraNumber(_ number: Int) {
+        var selectedNumbers = selectedExtraNumbers
+        
+        if selectedNumbers.contains(number) {
+            selectedNumbers.removeAll { $0 == number }
+            extraNumberInputs = selectedNumbers.sorted().map(String.init)
+            errorMessage = nil
+            successMessage = nil
+            return
+        }
+        
+        guard selectedNumbers.count < currentRules.extraNumbersCount else {
+            errorMessage = "Możesz wybrać maksymalnie \(currentRules.extraNumbersCount) euroliczby."
+            successMessage = nil
+            return
+        }
+        
+        selectedNumbers.append(number)
+        extraNumberInputs = selectedNumbers.sorted().map(String.init)
+        errorMessage = nil
+        successMessage = nil
     }
     
     func generateRandomTicket() {
@@ -302,28 +376,15 @@ final class TicketViewModel: ObservableObject {
     }
     
     private var hasAnyCurrentInput: Bool {
-        let hasMainInput = numberInputs.contains { input in
-            !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        
-        let hasExtraInput = extraNumberInputs.contains { input in
-            !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        
-        return hasMainInput || hasExtraInput
+        !selectedMainNumbers.isEmpty || !selectedExtraNumbers.isEmpty
     }
     
     private func makeLineFromCurrentInputs() -> TicketLine? {
-        let numbers = numberInputs.compactMap { input in
-            Int(input.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        
-        let extraNumbers = extraNumberInputs.compactMap { input in
-            Int(input.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
+        let numbers = selectedMainNumbers
+        let extraNumbers = selectedExtraNumbers
         
         guard numbers.count == currentRules.mainNumbersCount else {
-            errorMessage = "Wpisz dokładnie \(currentRules.mainNumbersCount) liczb głównych."
+            errorMessage = "Wybierz dokładnie \(currentRules.mainNumbersCount) liczb głównych."
             successMessage = nil
             return nil
         }
@@ -350,7 +411,7 @@ final class TicketViewModel: ObservableObject {
             }
             
             guard extraNumbers.count == currentRules.extraNumbersCount else {
-                errorMessage = "Wpisz dokładnie \(currentRules.extraNumbersCount) euroliczby."
+                errorMessage = "Wybierz dokładnie \(currentRules.extraNumbersCount) euroliczby."
                 successMessage = nil
                 return nil
             }
@@ -377,15 +438,16 @@ final class TicketViewModel: ObservableObject {
     }
     
     private func resetCurrentInputs() {
-        numberInputs = Array(
-            repeating: "",
-            count: currentRules.mainNumbersCount
-        )
-        
-        extraNumberInputs = Array(
-            repeating: "",
-            count: currentRules.extraNumbersCount
-        )
+        numberInputs = []
+        extraNumberInputs = []
+    }
+    
+    private func numbers(from inputs: [String]) -> [Int] {
+        inputs
+            .compactMap { input in
+                Int(input.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            .sorted()
     }
     
     private func deleteTicket(_ ticket: LottoTicket) {
