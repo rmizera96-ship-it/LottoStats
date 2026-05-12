@@ -1,9 +1,51 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var selectedGame = "Lotto"
     @State private var tickets: [LottoTicket] = []
     
+    var body: some View {
+        TabView {
+            NavigationStack {
+                HomeView(tickets: tickets)
+            }
+            .tabItem {
+                Label("Start", systemImage: "house.fill")
+            }
+            
+            NavigationStack {
+                HistoryView()
+            }
+            .tabItem {
+                Label("Historia", systemImage: "clock.arrow.circlepath")
+            }
+            
+            NavigationStack {
+                StatisticsView()
+            }
+            .tabItem {
+                Label("Statystyki", systemImage: "chart.bar.xaxis")
+            }
+            
+            NavigationStack {
+                MyTicketsView(tickets: $tickets)
+            }
+            .tabItem {
+                Label("Kupony", systemImage: "ticket.fill")
+            }
+        }
+        .onAppear {
+            tickets = TicketStorage.load()
+        }
+        .onChange(of: tickets) { _, newTickets in
+            TicketStorage.save(newTickets)
+        }
+    }
+}
+
+struct HomeView: View {
+    @State private var selectedGame = "Lotto"
+    
+    let tickets: [LottoTicket]
     let games = ["Lotto", "Mini Lotto", "Eurojackpot"]
     let latestDraw = DrawResult.sample
     
@@ -38,81 +80,68 @@ struct ContentView: View {
         }.count
     }
     
+    private var plusTicketsCount: Int {
+        tickets.filter { $0.includesPlus }.count
+    }
+    
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    
-                    headerView
-                    
-                    Picker("Gra", selection: $selectedGame) {
-                        ForEach(games, id: \.self) { game in
-                            Text(game)
-                        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                
+                headerView
+                
+                Picker("Gra", selection: $selectedGame) {
+                    ForEach(games, id: \.self) { game in
+                        Text(game)
                     }
-                    .pickerStyle(.segmented)
+                }
+                .pickerStyle(.segmented)
+                
+                latestDrawCard
+                
+                VStack(spacing: 12) {
+                    InfoCard(
+                        title: "Najczęstsza liczba",
+                        value: mostFrequentNumberText,
+                        subtitle: "Na podstawie historii losowań"
+                    )
                     
-                    latestDrawCard
+                    InfoCard(
+                        title: "Aktywne kupony",
+                        value: "\(activeTicketsCount)",
+                        subtitle: "Kupony na przyszłe losowania"
+                    )
                     
-                    NavigationLink {
-                        HistoryView()
-                    } label: {
-                        MenuButton(
-                            icon: "clock.arrow.circlepath",
-                            title: "Zobacz historię losowań"
-                        )
-                    }
+                    InfoCard(
+                        title: "Sprawdzone kupony",
+                        value: "\(checkedTicketsCount)",
+                        subtitle: "Kupony, dla których mamy wynik losowania"
+                    )
                     
-                    NavigationLink {
-                        StatisticsView()
-                    } label: {
-                        MenuButton(
-                            icon: "chart.bar.xaxis",
-                            title: "Zobacz statystyki liczb"
-                        )
-                    }
+                    InfoCard(
+                        title: "Kupony z Lotto Plus",
+                        value: "\(plusTicketsCount)",
+                        subtitle: "Kupony z zaznaczoną opcją Plus"
+                    )
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Nawigacja")
+                        .font(.headline)
                     
-                    NavigationLink {
-                        MyTicketsView(tickets: $tickets)
-                    } label: {
-                        MenuButton(
-                            icon: "ticket.fill",
-                            title: "Moje kupony"
-                        )
-                    }
-                    
-                    VStack(spacing: 12) {
-                        InfoCard(
-                            title: "Najczęstsza liczba",
-                            value: mostFrequentNumberText,
-                            subtitle: "Na podstawie historii losowań"
-                        )
-                        
-                        InfoCard(
-                            title: "Aktywne kupony",
-                            value: "\(activeTicketsCount)",
-                            subtitle: "Kupony na przyszłe losowania"
-                        )
-                        
-                        InfoCard(
-                            title: "Sprawdzone kupony",
-                            value: "\(checkedTicketsCount)",
-                            subtitle: "Kupony, dla których mamy wynik losowania"
-                        )
-                    }
-                    
-                    Spacer()
+                    Text("Użyj dolnego menu, żeby przejść do historii losowań, statystyk albo swoich kuponów.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
                 .padding()
+                .background(Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                
+                Spacer()
             }
-            .navigationTitle("Start")
-            .onAppear {
-                tickets = TicketStorage.load()
-            }
-            .onChange(of: tickets) { _, newTickets in
-                TicketStorage.save(newTickets)
-            }
+            .padding()
         }
+        .navigationTitle("LottoStats")
     }
     
     private var headerView: some View {
@@ -121,7 +150,7 @@ struct ContentView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
             
-            Text("Sprawdzaj wyniki losowań i statystyki liczb")
+            Text("Sprawdzaj wyniki losowań, statystyki liczb i swoje kupony.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -149,29 +178,27 @@ struct ContentView: View {
                         .clipShape(Circle())
                 }
             }
+            
+            if let plusNumbers = latestDraw.plusNumbers {
+                Divider()
+                
+                Text("Lotto Plus")
+                    .font(.headline)
+                
+                HStack {
+                    ForEach(plusNumbers, id: \.self) { number in
+                        Text("\(number)")
+                            .font(.headline)
+                            .frame(width: 42, height: 42)
+                            .background(Color.purple.opacity(0.15))
+                            .clipShape(Circle())
+                    }
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-}
-
-struct MenuButton: View {
-    let icon: String
-    let title: String
-    
-    var body: some View {
-        HStack {
-            Image(systemName: icon)
-            Text(title)
-                .fontWeight(.semibold)
-            Spacer()
-            Image(systemName: "chevron.right")
-        }
-        .padding()
-        .background(Color.blue)
-        .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
