@@ -6,6 +6,7 @@ struct DrawResult: Identifiable {
     let drawDate: Date
     let numbers: [Int]
     let plusNumbers: [Int]?
+    let extraNumbers: [Int]?
     
     var gameName: String {
         game.displayName
@@ -15,12 +16,14 @@ struct DrawResult: Identifiable {
         game: LottoGame = .lotto,
         drawDate: Date,
         numbers: [Int],
-        plusNumbers: [Int]? = nil
+        plusNumbers: [Int]? = nil,
+        extraNumbers: [Int]? = nil
     ) {
         self.game = game
         self.drawDate = drawDate
         self.numbers = numbers
         self.plusNumbers = plusNumbers
+        self.extraNumbers = extraNumbers
     }
 }
 
@@ -32,7 +35,7 @@ extension DrawResult {
         plusNumbers: [2, 8, 16, 24, 35, 44]
     )
     
-    static let nextDrawDates: [Date] = [
+    static let lottoNextDrawDates: [Date] = [
         makeDate(year: 2026, month: 5, day: 14),
         makeDate(year: 2026, month: 5, day: 16),
         makeDate(year: 2026, month: 5, day: 18),
@@ -45,9 +48,38 @@ extension DrawResult {
         makeDate(year: 2026, month: 6, day: 1)
     ]
     
-    static let nextDrawDate = nextDrawDates.first ?? Date()
+    static let miniLottoNextDrawDates: [Date] = [
+        makeDate(year: 2026, month: 5, day: 13),
+        makeDate(year: 2026, month: 5, day: 14),
+        makeDate(year: 2026, month: 5, day: 15),
+        makeDate(year: 2026, month: 5, day: 16),
+        makeDate(year: 2026, month: 5, day: 17),
+        makeDate(year: 2026, month: 5, day: 18),
+        makeDate(year: 2026, month: 5, day: 19),
+        makeDate(year: 2026, month: 5, day: 20),
+        makeDate(year: 2026, month: 5, day: 21),
+        makeDate(year: 2026, month: 5, day: 22)
+    ]
+    
+    static let eurojackpotNextDrawDates: [Date] = [
+        makeDate(year: 2026, month: 5, day: 13),
+        makeDate(year: 2026, month: 5, day: 16),
+        makeDate(year: 2026, month: 5, day: 20),
+        makeDate(year: 2026, month: 5, day: 23),
+        makeDate(year: 2026, month: 5, day: 27),
+        makeDate(year: 2026, month: 5, day: 30),
+        makeDate(year: 2026, month: 6, day: 3),
+        makeDate(year: 2026, month: 6, day: 6),
+        makeDate(year: 2026, month: 6, day: 10),
+        makeDate(year: 2026, month: 6, day: 13)
+    ]
+    
+    static let nextDrawDates = lottoNextDrawDates
+    static let nextDrawDate = lottoNextDrawDates.first ?? Date()
     
     static let samples: [DrawResult] = [
+        // MARK: - Lotto
+        
         DrawResult(
             game: .lotto,
             drawDate: makeDate(year: 2026, month: 5, day: 10),
@@ -77,6 +109,61 @@ extension DrawResult {
             drawDate: makeDate(year: 2026, month: 5, day: 1),
             numbers: [3, 11, 19, 25, 31, 47],
             plusNumbers: [5, 13, 20, 26, 34, 48]
+        ),
+        
+        // MARK: - Mini Lotto
+        
+        DrawResult(
+            game: .miniLotto,
+            drawDate: makeDate(year: 2026, month: 5, day: 11),
+            numbers: [4, 12, 19, 27, 38]
+        ),
+        DrawResult(
+            game: .miniLotto,
+            drawDate: makeDate(year: 2026, month: 5, day: 10),
+            numbers: [2, 8, 12, 31, 40]
+        ),
+        DrawResult(
+            game: .miniLotto,
+            drawDate: makeDate(year: 2026, month: 5, day: 9),
+            numbers: [5, 14, 22, 27, 41]
+        ),
+        DrawResult(
+            game: .miniLotto,
+            drawDate: makeDate(year: 2026, month: 5, day: 8),
+            numbers: [1, 12, 18, 29, 33]
+        ),
+        DrawResult(
+            game: .miniLotto,
+            drawDate: makeDate(year: 2026, month: 5, day: 7),
+            numbers: [4, 10, 19, 27, 35]
+        ),
+        
+        // MARK: - Eurojackpot
+        
+        DrawResult(
+            game: .eurojackpot,
+            drawDate: makeDate(year: 2026, month: 5, day: 9),
+            numbers: [7, 14, 23, 36, 45],
+            extraNumbers: [2, 11]
+        ),
+        DrawResult(
+            game: .eurojackpot,
+            drawDate: makeDate(year: 2026, month: 5, day: 6),
+            numbers: [3, 18, 25, 34, 49],
+            extraNumbers: [5, 9]
+        ),
+        DrawResult(
+            game: .eurojackpot,
+            drawDate: makeDate(year: 2026, month: 5, day: 2),
+            numbers: [1, 12, 27, 33, 41],
+            extraNumbers: [4, 10]
+        ),
+        DrawResult(
+            game: .eurojackpot,
+            drawDate: makeDate(year: 2026, month: 4, day: 29),
+            numbers: [9, 16, 22, 38, 50],
+            extraNumbers: [1, 12]
         )
     ]
     
@@ -96,12 +183,18 @@ extension DrawResult {
     }
     
     static func upcomingDrawDates(for game: LottoGame = .lotto, count: Int) -> [Date] {
+        let dates: [Date]
+        
         switch game {
         case .lotto:
-            return Array(nextDrawDates.prefix(count))
-        case .miniLotto, .eurojackpot:
-            return []
+            dates = lottoNextDrawDates
+        case .miniLotto:
+            dates = miniLottoNextDrawDates
+        case .eurojackpot:
+            dates = eurojackpotNextDrawDates
         }
+        
+        return Array(dates.prefix(count))
     }
     
     static func upcomingDrawDates(count: Int) -> [Date] {

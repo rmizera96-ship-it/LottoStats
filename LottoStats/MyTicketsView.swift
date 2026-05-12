@@ -15,14 +15,14 @@ struct MyTicketsView: View {
                 
                 drawCountSection
                 
-                inputSection
+                mainNumbersInputSection
+                
+                if viewModel.currentRules.extraNumbersCount > 0 {
+                    extraNumbersInputSection
+                }
                 
                 if viewModel.currentRules.supportsPlus {
                     plusSection
-                }
-                
-                if !viewModel.currentRules.supportsTicketsInCurrentVersion {
-                    unsupportedGameSection
                 }
                 
                 if let errorMessage = viewModel.errorMessage {
@@ -47,11 +47,10 @@ struct MyTicketsView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(viewModel.currentRules.supportsTicketsInCurrentVersion ? Color.blue : Color.gray.opacity(0.4))
+                    .background(Color.blue)
                     .foregroundStyle(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
-                .disabled(!viewModel.currentRules.supportsTicketsInCurrentVersion)
                 
                 Button {
                     viewModel.generateRandomTicket()
@@ -163,12 +162,12 @@ struct MyTicketsView: View {
         }
     }
     
-    private var inputSection: some View {
+    private var mainNumbersInputSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Twoje liczby")
+            Text("Liczby główne")
                 .font(.headline)
             
-            Text(viewModel.currentRules.inputPlaceholderText)
+            Text("Wybierz \(viewModel.currentRules.mainNumbersCount) liczb z zakresu \(viewModel.currentRules.mainNumberRange.lowerBound)-\(viewModel.currentRules.mainNumberRange.upperBound).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             
@@ -186,6 +185,31 @@ struct MyTicketsView: View {
         }
     }
     
+    private var extraNumbersInputSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Euroliczby")
+                .font(.headline)
+            
+            if let extraRange = viewModel.currentRules.extraNumberRange {
+                Text("Wybierz \(viewModel.currentRules.extraNumbersCount) euroliczby z zakresu \(extraRange.lowerBound)-\(extraRange.upperBound).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            HStack {
+                ForEach(viewModel.extraNumberInputs.indices, id: \.self) { index in
+                    TextField("\(index + 1)", text: $viewModel.extraNumberInputs[index])
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .font(.headline)
+                        .frame(width: 46, height: 46)
+                        .background(Color.purple.opacity(0.15))
+                        .clipShape(Circle())
+                }
+            }
+        }
+    }
+    
     private var plusSection: some View {
         AppCard {
             Toggle(isOn: $viewModel.includesPlus) {
@@ -197,19 +221,6 @@ struct MyTicketsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            }
-        }
-    }
-    
-    private var unsupportedGameSection: some View {
-        AppCard {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Ta gra wymaga dodatkowego formularza")
-                    .font(.headline)
-                
-                Text("Eurojackpot ma liczby główne oraz dodatkowe euroliczby, więc dodamy go jako osobny typ kuponu w kolejnym etapie.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -264,37 +275,13 @@ struct TicketRow: View {
             VStack(alignment: .leading, spacing: 12) {
                 topSection
                 
-                HStack {
-                    Text(checkResult.status.displayName)
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(statusBackground)
-                        .clipShape(Capsule())
-                    
-                    Text("\(ticket.drawDates.count) los.")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.blue.opacity(0.15))
-                        .clipShape(Capsule())
-                    
-                    if ticket.includesPlus {
-                        Text("Plus")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color.purple.opacity(0.2))
-                            .clipShape(Capsule())
-                    }
-                    
-                    Spacer()
-                }
+                badgesSection
                 
-                numbersSection
+                mainNumbersSection
+                
+                if !ticket.extraNumbers.isEmpty {
+                    extraNumbersSection
+                }
                 
                 resultSection
             }
@@ -331,14 +318,82 @@ struct TicketRow: View {
         }
     }
     
-    private var numbersSection: some View {
+    private var badgesSection: some View {
         HStack {
-            ForEach(ticket.numbers, id: \.self) { number in
-                NumberBall(
-                    number: number,
-                    style: numberStyle(number),
-                    size: 34
-                )
+            Text(checkResult.status.displayName)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(statusBackground)
+                .clipShape(Capsule())
+            
+            Text("\(ticket.drawDates.count) los.")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.blue.opacity(0.15))
+                .clipShape(Capsule())
+            
+            if ticket.includesPlus {
+                Text("Plus")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.purple.opacity(0.2))
+                    .clipShape(Capsule())
+            }
+            
+            if !ticket.extraNumbers.isEmpty {
+                Text("Euroliczby")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.purple.opacity(0.2))
+                    .clipShape(Capsule())
+            }
+            
+            Spacer()
+        }
+    }
+    
+    private var mainNumbersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Liczby główne")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+            
+            HStack {
+                ForEach(ticket.numbers, id: \.self) { number in
+                    NumberBall(
+                        number: number,
+                        style: mainNumberStyle(number),
+                        size: 34
+                    )
+                }
+            }
+        }
+    }
+    
+    private var extraNumbersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Euroliczby")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+            
+            HStack {
+                ForEach(ticket.extraNumbers, id: \.self) { number in
+                    NumberBall(
+                        number: number,
+                        style: extraNumberStyle(number),
+                        size: 34
+                    )
+                }
             }
         }
     }
@@ -381,13 +436,25 @@ struct TicketRow: View {
         }
     }
     
-    private func numberStyle(_ number: Int) -> NumberBallStyle {
+    private func mainNumberStyle(_ number: Int) -> NumberBallStyle {
         if checkResult.isNumberMatched(number) {
             return .matched
         }
         
         if checkResult.checkedDraws.isEmpty {
             return .lotto
+        }
+        
+        return .inactive
+    }
+    
+    private func extraNumberStyle(_ number: Int) -> NumberBallStyle {
+        if checkResult.isExtraNumberMatched(number) {
+            return .matched
+        }
+        
+        if checkResult.checkedDraws.isEmpty {
+            return .plus
         }
         
         return .inactive
@@ -404,12 +471,27 @@ struct DrawCheckRow: View {
                 .font(.caption)
                 .fontWeight(.semibold)
             
-            Text("Lotto: \(resultText(for: check.lottoMatchedNumbers.count))")
+            Text("Liczby główne: \(resultText(for: check.lottoMatchedNumbers.count))")
                 .font(.caption)
             
-            Text("Trafione Lotto: \(numbersText(check.lottoMatchedNumbers))")
+            Text("Trafione główne: \(numbersText(check.lottoMatchedNumbers))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            
+            if !ticket.extraNumbers.isEmpty {
+                if check.hasExtraResult {
+                    Text("Euroliczby: \(resultText(for: check.extraMatchedNumbers.count))")
+                        .font(.caption)
+                    
+                    Text("Trafione euroliczby: \(numbersText(check.extraMatchedNumbers))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Euroliczby: brak wyniku")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             
             if ticket.includesPlus {
                 if check.hasPlusResult {

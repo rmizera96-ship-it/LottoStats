@@ -16,6 +16,11 @@ final class TicketViewModel: ObservableObject {
                 count: currentRules.mainNumbersCount
             )
             
+            extraNumberInputs = Array(
+                repeating: "",
+                count: currentRules.extraNumbersCount
+            )
+            
             selectedDrawCount = 1
             errorMessage = nil
             successMessage = nil
@@ -23,6 +28,7 @@ final class TicketViewModel: ObservableObject {
     }
     
     @Published var numberInputs = Array(repeating: "", count: 6)
+    @Published var extraNumberInputs: [String] = []
     @Published var includesPlus = false
     @Published var selectedDrawCount = 1
     @Published var errorMessage: String?
@@ -35,9 +41,15 @@ final class TicketViewModel: ObservableObject {
     private let repository: LottoRepository
     private let ticketChecker: TicketChecker
     
+    init() {
+        self.repository = LottoRepository.shared
+        self.ticketChecker = TicketChecker()
+        loadTickets()
+    }
+    
     init(
-        repository: LottoRepository = .shared,
-        ticketChecker: TicketChecker = TicketChecker()
+        repository: LottoRepository,
+        ticketChecker: TicketChecker
     ) {
         self.repository = repository
         self.ticketChecker = ticketChecker
@@ -64,35 +76,40 @@ final class TicketViewModel: ObservableObject {
     }
     
     func generateRandomTicket() {
-        guard currentRules.supportsTicketsInCurrentVersion else {
-            errorMessage = "Gra \(selectedGame.displayName) wymaga dodatkowych liczb i zostanie dodana później."
-            successMessage = nil
-            return
-        }
-        
         let randomNumbers = Array(currentRules.mainNumberRange)
             .shuffled()
             .prefix(currentRules.mainNumbersCount)
             .sorted()
         
         numberInputs = randomNumbers.map { String($0) }
+        
+        if let extraRange = currentRules.extraNumberRange,
+           currentRules.extraNumbersCount > 0 {
+            let randomExtraNumbers = Array(extraRange)
+                .shuffled()
+                .prefix(currentRules.extraNumbersCount)
+                .sorted()
+            
+            extraNumberInputs = randomExtraNumbers.map { String($0) }
+        } else {
+            extraNumberInputs = []
+        }
+        
         errorMessage = nil
         successMessage = nil
     }
     
     func saveTicket() {
-        guard currentRules.supportsTicketsInCurrentVersion else {
-            errorMessage = "Dodawanie kuponów dla gry \(selectedGame.displayName) dodamy w kolejnym etapie."
-            successMessage = nil
-            return
-        }
-        
         let numbers = numberInputs.compactMap { input in
             Int(input.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         
+        let extraNumbers = extraNumberInputs.compactMap { input in
+            Int(input.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        
         guard numbers.count == currentRules.mainNumbersCount else {
-            errorMessage = "Wpisz dokładnie \(currentRules.mainNumbersCount) liczb."
+            errorMessage = "Wpisz dokładnie \(currentRules.mainNumbersCount) liczb głównych."
             successMessage = nil
             return
         }
@@ -100,15 +117,43 @@ final class TicketViewModel: ObservableObject {
         guard numbers.allSatisfy({ number in
             currentRules.mainNumberRange.contains(number)
         }) else {
-            errorMessage = "Każda liczba musi być z zakresu \(currentRules.mainNumberRange.lowerBound)-\(currentRules.mainNumberRange.upperBound)."
+            errorMessage = "Liczby główne muszą być z zakresu \(currentRules.mainNumberRange.lowerBound)-\(currentRules.mainNumberRange.upperBound)."
             successMessage = nil
             return
         }
         
         guard Set(numbers).count == currentRules.mainNumbersCount else {
-            errorMessage = "Liczby nie mogą się powtarzać."
+            errorMessage = "Liczby główne nie mogą się powtarzać."
             successMessage = nil
             return
+        }
+        
+        if currentRules.extraNumbersCount > 0 {
+            guard let extraRange = currentRules.extraNumberRange else {
+                errorMessage = "Brak konfiguracji dla dodatkowych liczb."
+                successMessage = nil
+                return
+            }
+            
+            guard extraNumbers.count == currentRules.extraNumbersCount else {
+                errorMessage = "Wpisz dokładnie \(currentRules.extraNumbersCount) euroliczby."
+                successMessage = nil
+                return
+            }
+            
+            guard extraNumbers.allSatisfy({ number in
+                extraRange.contains(number)
+            }) else {
+                errorMessage = "Euroliczby muszą być z zakresu \(extraRange.lowerBound)-\(extraRange.upperBound)."
+                successMessage = nil
+                return
+            }
+            
+            guard Set(extraNumbers).count == currentRules.extraNumbersCount else {
+                errorMessage = "Euroliczby nie mogą się powtarzać."
+                successMessage = nil
+                return
+            }
         }
         
         guard let firstDrawDate = selectedDrawDates.first else {
@@ -118,12 +163,14 @@ final class TicketViewModel: ObservableObject {
         }
         
         let sortedNumbers = numbers.sorted()
+        let sortedExtraNumbers = extraNumbers.sorted()
         let drawDatesForTicket = selectedDrawDates
         let drawCountForMessage = drawDatesForTicket.count
         
         let newTicket = LottoTicket(
             gameName: selectedGame.displayName,
             numbers: sortedNumbers,
+            extraNumbers: sortedExtraNumbers,
             drawDate: firstDrawDate,
             drawDates: drawDatesForTicket,
             includesPlus: currentRules.supportsPlus ? includesPlus : false
@@ -135,6 +182,10 @@ final class TicketViewModel: ObservableObject {
         numberInputs = Array(
             repeating: "",
             count: currentRules.mainNumbersCount
+        )
+        extraNumberInputs = Array(
+            repeating: "",
+            count: currentRules.extraNumbersCount
         )
         includesPlus = false
         selectedDrawCount = 1

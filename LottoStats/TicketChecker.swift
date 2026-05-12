@@ -25,19 +25,25 @@ struct SingleDrawCheckResult: Identifiable {
     let drawDate: Date
     let lottoMatchedNumbers: [Int]
     let plusMatchedNumbers: [Int]
+    let extraMatchedNumbers: [Int]
     let hasPlusResult: Bool
+    let hasExtraResult: Bool
     
     init(
         drawDate: Date,
         lottoMatchedNumbers: [Int],
         plusMatchedNumbers: [Int],
-        hasPlusResult: Bool
+        extraMatchedNumbers: [Int],
+        hasPlusResult: Bool,
+        hasExtraResult: Bool
     ) {
         self.id = drawDate
         self.drawDate = drawDate
         self.lottoMatchedNumbers = lottoMatchedNumbers
         self.plusMatchedNumbers = plusMatchedNumbers
+        self.extraMatchedNumbers = extraMatchedNumbers
         self.hasPlusResult = hasPlusResult
+        self.hasExtraResult = hasExtraResult
     }
 }
 
@@ -56,12 +62,22 @@ struct TicketCheckResult {
             drawCheck.plusMatchedNumbers.contains(number)
         }
     }
+    
+    func isExtraNumberMatched(_ number: Int) -> Bool {
+        checkedDraws.contains { drawCheck in
+            drawCheck.extraMatchedNumbers.contains(number)
+        }
+    }
 }
 
 struct TicketChecker {
     private let repository: LottoRepository
     
-    init(repository: LottoRepository = .shared) {
+    init() {
+        self.repository = LottoRepository.shared
+    }
+    
+    init(repository: LottoRepository) {
         self.repository = repository
     }
     
@@ -92,11 +108,26 @@ struct TicketChecker {
                 plusMatchedNumbers = []
             }
             
+            let hasExtraResult = result.extraNumbers != nil
+            
+            let extraMatchedNumbers: [Int]
+            
+            if let resultExtraNumbers = result.extraNumbers {
+                let extraNumbersSet = Set(resultExtraNumbers)
+                extraMatchedNumbers = ticket.extraNumbers.filter {
+                    extraNumbersSet.contains($0)
+                }
+            } else {
+                extraMatchedNumbers = []
+            }
+            
             return SingleDrawCheckResult(
                 drawDate: result.drawDate,
                 lottoMatchedNumbers: lottoMatchedNumbers,
                 plusMatchedNumbers: plusMatchedNumbers,
-                hasPlusResult: hasPlusResult
+                extraMatchedNumbers: extraMatchedNumbers,
+                hasPlusResult: hasPlusResult,
+                hasExtraResult: hasExtraResult
             )
         }
         

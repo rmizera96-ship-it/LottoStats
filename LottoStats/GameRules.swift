@@ -19,7 +19,7 @@ struct GameRules {
     
     var inputPlaceholderText: String {
         if let extraNumberRange {
-            return "Wybierz \(mainNumbersCount) liczb z zakresu \(mainNumberRange.lowerBound)-\(mainNumberRange.upperBound) oraz \(extraNumbersCount) liczb z zakresu \(extraNumberRange.lowerBound)-\(extraNumberRange.upperBound)."
+            return "Wybierz \(mainNumbersCount) liczb z zakresu \(mainNumberRange.lowerBound)-\(mainNumberRange.upperBound) oraz \(extraNumbersCount) euroliczby z zakresu \(extraNumberRange.lowerBound)-\(extraNumberRange.upperBound)."
         } else {
             return "Wybierz \(mainNumbersCount) liczb z zakresu \(mainNumberRange.lowerBound)-\(mainNumberRange.upperBound)."
         }
@@ -57,7 +57,7 @@ struct GameRules {
                 extraNumbersCount: 2,
                 extraNumberRange: 1...12,
                 supportsPlus: false,
-                supportsTicketsInCurrentVersion: false
+                supportsTicketsInCurrentVersion: true
             )
         }
     }
