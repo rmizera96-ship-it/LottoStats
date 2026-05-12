@@ -25,16 +25,22 @@ struct NumberFrequency: Identifiable {
 }
 
 struct StatisticsView: View {
-    @State private var selectedGame: LottoGame = .lotto
+    @StateObject private var viewModel = LottoDataViewModel()
     
     private let repository = LottoRepository.shared
     
-    private var draws: [DrawResult] {
-        repository.draws(for: selectedGame)
+    private var selectedGameBinding: Binding<LottoGame> {
+        Binding {
+            viewModel.selectedGame
+        } set: { game in
+            Task {
+                await viewModel.selectGame(game)
+            }
+        }
     }
     
     private var frequencies: [NumberFrequency] {
-        NumberFrequency.calculate(from: draws)
+        NumberFrequency.calculate(from: viewModel.draws)
     }
     
     private var maxCount: Int {
@@ -55,7 +61,7 @@ struct StatisticsView: View {
                         .foregroundStyle(.secondary)
                 }
                 
-                Picker("Gra", selection: $selectedGame) {
+                Picker("Gra", selection: selectedGameBinding) {
                     ForEach(repository.availableGames()) { game in
                         Text(game.displayName)
                             .tag(game)
@@ -63,13 +69,22 @@ struct StatisticsView: View {
                 }
                 .pickerStyle(.segmented)
                 
-                if frequencies.isEmpty {
+                if viewModel.isLoading {
+                    AppCard {
+                        HStack {
+                            ProgressView()
+                            Text("Ładowanie statystyk...")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else if frequencies.isEmpty {
                     AppCard {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Brak statystyk")
                                 .font(.headline)
                             
-                            Text("Dla gry \(selectedGame.displayName) nie mamy jeszcze danych testowych.")
+                            Text(viewModel.errorMessage ?? "Dla tej gry nie mamy jeszcze danych.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
@@ -83,6 +98,9 @@ struct StatisticsView: View {
             .padding()
         }
         .navigationTitle("Statystyki")
+        .task {
+            await viewModel.loadInitialData()
+        }
     }
     
     private func frequencyRow(_ item: NumberFrequency) -> some View {

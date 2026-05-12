@@ -1,19 +1,25 @@
 import SwiftUI
 
 struct HistoryView: View {
-    @State private var selectedGame: LottoGame = .lotto
+    @StateObject private var viewModel = LottoDataViewModel()
     
     private let repository = LottoRepository.shared
     
-    private var draws: [DrawResult] {
-        repository.draws(for: selectedGame)
+    private var selectedGameBinding: Binding<LottoGame> {
+        Binding {
+            viewModel.selectedGame
+        } set: { game in
+            Task {
+                await viewModel.selectGame(game)
+            }
+        }
     }
     
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 
-                Picker("Gra", selection: $selectedGame) {
+                Picker("Gra", selection: selectedGameBinding) {
                     ForEach(repository.availableGames()) { game in
                         Text(game.displayName)
                             .tag(game)
@@ -21,19 +27,28 @@ struct HistoryView: View {
                 }
                 .pickerStyle(.segmented)
                 
-                if draws.isEmpty {
+                if viewModel.isLoading {
+                    AppCard {
+                        HStack {
+                            ProgressView()
+                            Text("Ładowanie historii...")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else if viewModel.draws.isEmpty {
                     AppCard {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Brak historii")
                                 .font(.headline)
                             
-                            Text("Dla gry \(selectedGame.displayName) nie mamy jeszcze danych testowych.")
+                            Text(viewModel.errorMessage ?? "Dla tej gry nie mamy jeszcze danych.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                     }
                 } else {
-                    ForEach(draws) { draw in
+                    ForEach(viewModel.draws) { draw in
                         DrawHistoryRow(draw: draw)
                     }
                 }
@@ -41,6 +56,9 @@ struct HistoryView: View {
             .padding()
         }
         .navigationTitle("Historia losowań")
+        .task {
+            await viewModel.loadInitialData()
+        }
     }
 }
 
@@ -64,7 +82,7 @@ struct DrawHistoryRow: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Lotto")
+                    Text(draw.gameName)
                         .font(.caption)
                         .fontWeight(.semibold)
                         .foregroundStyle(.secondary)

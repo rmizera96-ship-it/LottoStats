@@ -43,7 +43,7 @@ struct ContentView: View {
 }
 
 struct HomeView: View {
-    @State private var selectedGame: LottoGame = .lotto
+    @StateObject private var viewModel = LottoDataViewModel()
     
     let tickets: [LottoTicket]
     
@@ -53,16 +53,18 @@ struct HomeView: View {
         repository.availableGames()
     }
     
-    private var latestDraw: DrawResult? {
-        repository.latestDraw(for: selectedGame)
-    }
-    
-    private var selectedGameDraws: [DrawResult] {
-        repository.draws(for: selectedGame)
+    private var selectedGameBinding: Binding<LottoGame> {
+        Binding {
+            viewModel.selectedGame
+        } set: { game in
+            Task {
+                await viewModel.selectGame(game)
+            }
+        }
     }
     
     private var mostFrequentNumberText: String {
-        let mostFrequent = NumberFrequency.calculate(from: selectedGameDraws).first
+        let mostFrequent = NumberFrequency.calculate(from: viewModel.draws).first
         return mostFrequent.map { "\($0.number)" } ?? "-"
     }
     
@@ -102,7 +104,7 @@ struct HomeView: View {
                 
                 headerView
                 
-                Picker("Gra", selection: $selectedGame) {
+                Picker("Gra", selection: selectedGameBinding) {
                     ForEach(games) { game in
                         Text(game.displayName)
                             .tag(game)
@@ -143,7 +145,7 @@ struct HomeView: View {
                         Text("Warstwa danych")
                             .font(.headline)
                         
-                        Text("Wyniki są teraz pobierane przez LottoRepository. Na razie zwraca dane testowe, ale później podmienimy je na API.")
+                        Text("Ten ekran korzysta już z LottoDataViewModel, czyli dane przechodzą przez ViewModel, Repository i Service.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -154,6 +156,9 @@ struct HomeView: View {
             .padding()
         }
         .navigationTitle("LottoStats")
+        .task {
+            await viewModel.loadInitialData()
+        }
     }
     
     private var headerView: some View {
@@ -170,7 +175,14 @@ struct HomeView: View {
     
     private var latestDrawCard: some View {
         AppCard {
-            if let latestDraw {
+            if viewModel.isLoading {
+                HStack {
+                    ProgressView()
+                    Text("Ładowanie danych...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let latestDraw = viewModel.latestDraw {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Ostatnie losowanie")
                         .font(.headline)
@@ -190,7 +202,7 @@ struct HomeView: View {
                     }
                     
                     if let plusNumbers = latestDraw.plusNumbers,
-                       selectedGame.supportsPlus {
+                       viewModel.selectedGame.supportsPlus {
                         Divider()
                         
                         Text("Lotto Plus")
@@ -208,7 +220,7 @@ struct HomeView: View {
                     Text("Brak danych")
                         .font(.headline)
                     
-                    Text("Dla gry \(selectedGame.displayName) nie mamy jeszcze przykładowych wyników.")
+                    Text(viewModel.errorMessage ?? "Nie udało się pobrać danych.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
