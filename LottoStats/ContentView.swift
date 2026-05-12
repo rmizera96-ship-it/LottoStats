@@ -22,6 +22,22 @@ struct ContentView: View {
                     
                     latestDrawCard
                     
+                    NavigationLink {
+                        HistoryView()
+                    } label: {
+                        HStack {
+                            Image(systemName: "clock.arrow.circlepath")
+                            Text("Zobacz historię losowań")
+                                .fontWeight(.semibold)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                    
                     VStack(spacing: 12) {
                         InfoCard(
                             title: "Najczęstsze liczby",
