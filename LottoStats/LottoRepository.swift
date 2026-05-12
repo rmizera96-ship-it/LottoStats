@@ -1,11 +1,17 @@
 import Foundation
 
 struct LottoRepository {
-    static let shared = LottoRepository(service: MockLottoService())
+    static let shared: LottoRepository = {
+        if LottoAPIConfiguration.shouldUseRealAPI {
+            return LottoRepository(service: OpenLottoService())
+        } else {
+            return LottoRepository(service: MockLottoService())
+        }
+    }()
     
-    private let service: LottoService
+    private let service: any LottoService
     
-    init(service: LottoService) {
+    init(service: any LottoService) {
         self.service = service
     }
     
@@ -13,7 +19,7 @@ struct LottoRepository {
         DrawResult.samples
     }
     
-    // MARK: - Local data
+    // MARK: - Local fallback data
     
     func availableGames() -> [LottoGame] {
         LottoGame.allCases
