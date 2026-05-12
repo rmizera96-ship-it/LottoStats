@@ -5,6 +5,7 @@ struct LottoTicket: Identifiable, Codable, Equatable {
     let gameName: String
     let numbers: [Int]
     let drawDate: Date
+    let drawDates: [Date]
     let includesPlus: Bool
     let createdAt: Date
     
@@ -13,6 +14,7 @@ struct LottoTicket: Identifiable, Codable, Equatable {
         gameName: String = "Lotto",
         numbers: [Int],
         drawDate: Date,
+        drawDates: [Date]? = nil,
         includesPlus: Bool = false,
         createdAt: Date = Date()
     ) {
@@ -20,6 +22,7 @@ struct LottoTicket: Identifiable, Codable, Equatable {
         self.gameName = gameName
         self.numbers = numbers
         self.drawDate = drawDate
+        self.drawDates = drawDates ?? [drawDate]
         self.includesPlus = includesPlus
         self.createdAt = createdAt
     }
@@ -29,6 +32,7 @@ struct LottoTicket: Identifiable, Codable, Equatable {
         case gameName
         case numbers
         case drawDate
+        case drawDates
         case includesPlus
         case createdAt
     }
@@ -40,6 +44,7 @@ struct LottoTicket: Identifiable, Codable, Equatable {
         gameName = try container.decode(String.self, forKey: .gameName)
         numbers = try container.decode([Int].self, forKey: .numbers)
         drawDate = try container.decode(Date.self, forKey: .drawDate)
+        drawDates = try container.decodeIfPresent([Date].self, forKey: .drawDates) ?? [drawDate]
         includesPlus = try container.decodeIfPresent(Bool.self, forKey: .includesPlus) ?? false
         createdAt = try container.decode(Date.self, forKey: .createdAt)
     }

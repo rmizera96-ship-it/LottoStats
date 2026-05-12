@@ -14,23 +14,27 @@ struct ContentView: View {
     
     private var activeTicketsCount: Int {
         tickets.filter { ticket in
-            let today = Calendar.current.startOfDay(for: Date())
-            let drawDay = Calendar.current.startOfDay(for: ticket.drawDate)
-            let hasResult = DrawResult.result(
-                for: ticket.gameName,
-                drawDate: ticket.drawDate
-            ) != nil
-            
-            return drawDay >= today && !hasResult
+            ticket.drawDates.contains { drawDate in
+                let today = Calendar.current.startOfDay(for: Date())
+                let drawDay = Calendar.current.startOfDay(for: drawDate)
+                let hasResult = DrawResult.result(
+                    for: ticket.gameName,
+                    drawDate: drawDate
+                ) != nil
+                
+                return drawDay >= today && !hasResult
+            }
         }.count
     }
     
     private var checkedTicketsCount: Int {
         tickets.filter { ticket in
-            DrawResult.result(
-                for: ticket.gameName,
-                drawDate: ticket.drawDate
-            ) != nil
+            ticket.drawDates.contains { drawDate in
+                DrawResult.result(
+                    for: ticket.gameName,
+                    drawDate: drawDate
+                ) != nil
+            }
         }.count
     }
     
@@ -107,7 +111,8 @@ struct ContentView: View {
             }
             .onChange(of: tickets) { _, newTickets in
                 TicketStorage.save(newTickets)
-            }        }
+            }
+        }
     }
     
     private var headerView: some View {

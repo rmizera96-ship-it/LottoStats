@@ -16,7 +16,20 @@ extension DrawResult {
         plusNumbers: [2, 8, 16, 24, 35, 44]
     )
     
-    static let nextDrawDate = makeDate(year: 2026, month: 5, day: 14)
+    static let nextDrawDates: [Date] = [
+        makeDate(year: 2026, month: 5, day: 14),
+        makeDate(year: 2026, month: 5, day: 16),
+        makeDate(year: 2026, month: 5, day: 18),
+        makeDate(year: 2026, month: 5, day: 20),
+        makeDate(year: 2026, month: 5, day: 22),
+        makeDate(year: 2026, month: 5, day: 24),
+        makeDate(year: 2026, month: 5, day: 26),
+        makeDate(year: 2026, month: 5, day: 28),
+        makeDate(year: 2026, month: 5, day: 30),
+        makeDate(year: 2026, month: 6, day: 1)
+    ]
+    
+    static let nextDrawDate = nextDrawDates.first ?? Date()
     
     static let samples: [DrawResult] = [
         DrawResult(
@@ -56,6 +69,10 @@ extension DrawResult {
             result.gameName == gameName &&
             Calendar.current.isDate(result.drawDate, inSameDayAs: drawDate)
         }
+    }
+    
+    static func upcomingDrawDates(count: Int) -> [Date] {
+        Array(nextDrawDates.prefix(count))
     }
     
     private static func makeDate(year: Int, month: Int, day: Int) -> Date {
