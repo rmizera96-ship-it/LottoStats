@@ -61,6 +61,27 @@ struct LottoFrequencyItem: Identifiable {
     let percentOfOccurrences: Double
 }
 
+struct LottoDrawPrizeInfo: Identifiable {
+    var id: String {
+        "\(gameType)-\(drawSystemId ?? 0)-\(drawDate?.timeIntervalSince1970 ?? 0)"
+    }
+    
+    let gameType: String
+    let drawDate: Date?
+    let drawSystemId: Int?
+    let ranks: [LottoPrizeRank]
+}
+
+struct LottoPrizeRank: Identifiable {
+    var id: String {
+        rank
+    }
+    
+    let rank: String
+    let winnersCount: Int
+    let prizeValue: Double
+}
+
 protocol LottoService {
     func fetchDraws(for game: LottoGame) async throws -> [DrawResult]
     func fetchLatestDraw(for game: LottoGame) async throws -> DrawResult?
@@ -68,6 +89,7 @@ protocol LottoService {
     func fetchGameInfo(for game: LottoGame) async throws -> LottoGameAPIInfo?
     func fetchJackpotInfo(for game: LottoGame) async throws -> LottoJackpotAPIInfo?
     func fetchNumberFrequencyStats(for game: LottoGame) async throws -> LottoFrequencyStats?
+    func fetchDrawPrizes(for draw: DrawResult) async throws -> [LottoDrawPrizeInfo]
 }
 
 extension LottoService {
@@ -81,6 +103,10 @@ extension LottoService {
     
     func fetchNumberFrequencyStats(for game: LottoGame) async throws -> LottoFrequencyStats? {
         nil
+    }
+    
+    func fetchDrawPrizes(for draw: DrawResult) async throws -> [LottoDrawPrizeInfo] {
+        []
     }
 }
 
@@ -155,23 +181,34 @@ struct MockLottoService: LottoService {
         
         let mainNumbers = draws.flatMap { $0.numbers }
         let specialNumbers = draws.flatMap { $0.extraNumbers ?? [] }
-        
         let sortedDates = draws.map { $0.drawDate }.sorted()
         
         return LottoFrequencyStats(
             game: game,
             totalDraws: draws.count,
-            mainNumbers: frequencyItems(
-                from: mainNumbers,
-                totalDraws: draws.count
-            ),
-            specialNumbers: frequencyItems(
-                from: specialNumbers,
-                totalDraws: draws.count
-            ),
+            mainNumbers: frequencyItems(from: mainNumbers, totalDraws: draws.count),
+            specialNumbers: frequencyItems(from: specialNumbers, totalDraws: draws.count),
             dateFrom: sortedDates.first ?? Date(),
             dateTo: sortedDates.last ?? Date()
         )
+    }
+    
+    func fetchDrawPrizes(for draw: DrawResult) async throws -> [LottoDrawPrizeInfo] {
+        try await simulateNetworkDelay()
+        
+        return [
+            LottoDrawPrizeInfo(
+                gameType: draw.game.displayName,
+                drawDate: draw.drawDate,
+                drawSystemId: draw.drawSystemId,
+                ranks: [
+                    LottoPrizeRank(rank: "1", winnersCount: 0, prizeValue: 0),
+                    LottoPrizeRank(rank: "2", winnersCount: 12, prizeValue: 3500),
+                    LottoPrizeRank(rank: "3", winnersCount: 240, prizeValue: 120),
+                    LottoPrizeRank(rank: "4", winnersCount: 1800, prizeValue: 24)
+                ]
+            )
+        ]
     }
     
     private func simulateNetworkDelay() async throws {
@@ -180,6 +217,7 @@ struct MockLottoService: LottoService {
     
     private func sortedDraw(_ draw: DrawResult) -> DrawResult {
         DrawResult(
+            drawSystemId: draw.drawSystemId,
             game: draw.game,
             drawDate: draw.drawDate,
             numbers: draw.numbers.sorted(),
@@ -221,10 +259,7 @@ struct MockLottoService: LottoService {
         }
     }
     
-    private func frequencyItems(
-        from numbers: [Int],
-        totalDraws: Int
-    ) -> [LottoFrequencyItem] {
+    private func frequencyItems(from numbers: [Int], totalDraws: Int) -> [LottoFrequencyItem] {
         let grouped = Dictionary(grouping: numbers, by: { $0 })
         
         return grouped
@@ -424,6 +459,46 @@ struct OpenLottoService: LottoService {
             dateFrom: dateRange.from,
             dateTo: dateRange.to
         )
+    }
+    
+    func fetchDrawPrizes(for draw: DrawResult) async throws -> [LottoDrawPrizeInfo] {
+        guard let drawSystemId = draw.drawSystemId else {
+            return []
+        }
+        
+        let url = try makeURL(
+            path: "lotteries/draw-prizes/\(apiGameType(for: draw.game))/\(drawSystemId)",
+            queryItems: []
+        )
+        
+        let response: [APIDrawPrizesResponse] = try await request(url)
+        
+        return response.compactMap { apiPrizeInfo in
+            let ranks = (apiPrizeInfo.prizes ?? [:])
+                .map { rank, prize in
+                    LottoPrizeRank(
+                        rank: rank,
+                        winnersCount: prize.prize ?? 0,
+                        prizeValue: prize.prizeValue ?? 0
+                    )
+                }
+                .sorted { first, second in
+                    let firstRank = Int(first.rank) ?? 999
+                    let secondRank = Int(second.rank) ?? 999
+                    return firstRank < secondRank
+                }
+            
+            guard !ranks.isEmpty else {
+                return nil
+            }
+            
+            return LottoDrawPrizeInfo(
+                gameType: apiPrizeInfo.gameType ?? draw.game.displayName,
+                drawDate: apiPrizeInfo.drawDate,
+                drawSystemId: apiPrizeInfo.drawSystemId,
+                ranks: ranks
+            )
+        }
     }
     
     // MARK: - Historical results
@@ -709,6 +784,7 @@ struct OpenLottoService: LottoService {
         let apiGameName = firstResult?.gameType ?? apiDraw.gameType
         let game = apiGameName.flatMap { LottoGame.fromAPIName($0) } ?? fallbackGame
         
+        let drawSystemId = firstResult?.drawSystemId ?? apiDraw.drawSystemId
         let drawDate = firstResult?.drawDate ?? apiDraw.drawDate
         let numbers = (firstResult?.resultsJson ?? []).sorted()
         let specialResults = (firstResult?.specialResults ?? []).sorted()
@@ -720,6 +796,7 @@ struct OpenLottoService: LottoService {
         switch game {
         case .eurojackpot:
             return DrawResult(
+                drawSystemId: drawSystemId,
                 game: .eurojackpot,
                 drawDate: drawDate,
                 numbers: numbers,
@@ -728,6 +805,7 @@ struct OpenLottoService: LottoService {
             
         case .lotto:
             return DrawResult(
+                drawSystemId: drawSystemId,
                 game: .lotto,
                 drawDate: drawDate,
                 numbers: numbers
@@ -735,6 +813,7 @@ struct OpenLottoService: LottoService {
             
         case .miniLotto:
             return DrawResult(
+                drawSystemId: drawSystemId,
                 game: .miniLotto,
                 drawDate: drawDate,
                 numbers: numbers
@@ -745,6 +824,7 @@ struct OpenLottoService: LottoService {
     private func mapLottoPlusDraw(_ apiDraw: APIDrawResponse) -> DrawResult? {
         let firstResult = apiDraw.results?.first
         
+        let drawSystemId = firstResult?.drawSystemId ?? apiDraw.drawSystemId
         let drawDate = firstResult?.drawDate ?? apiDraw.drawDate
         let numbers = (firstResult?.resultsJson ?? []).sorted()
         
@@ -753,6 +833,7 @@ struct OpenLottoService: LottoService {
         }
         
         return DrawResult(
+            drawSystemId: drawSystemId,
             game: .lotto,
             drawDate: drawDate,
             numbers: numbers
@@ -772,6 +853,7 @@ struct OpenLottoService: LottoService {
             }
             
             return DrawResult(
+                drawSystemId: lottoDraw.drawSystemId,
                 game: lottoDraw.game,
                 drawDate: lottoDraw.drawDate,
                 numbers: lottoDraw.numbers.sorted(),
@@ -1037,6 +1119,19 @@ private struct APINumberFrequencyItem: Decodable {
     let number: Int?
     let numberOfOccurrences: Int?
     let percentOfOccurrences: Double?
+}
+
+private struct APIDrawPrizesResponse: Decodable {
+    let prizes: [String: APIPrizeRankResponse]?
+    let drawDate: Date?
+    let drawSystemId: Int?
+    let gameType: String?
+    let prizesEmpty: Bool?
+}
+
+private struct APIPrizeRankResponse: Decodable {
+    let prize: Int?
+    let prizeValue: Double?
 }
 
 // MARK: - Date helpers

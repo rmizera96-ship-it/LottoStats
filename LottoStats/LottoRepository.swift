@@ -90,4 +90,8 @@ struct LottoRepository {
     func fetchNumberFrequencyStats(for game: LottoGame) async throws -> LottoFrequencyStats? {
         try await service.fetchNumberFrequencyStats(for: game)
     }
+    
+    func fetchDrawPrizes(for draw: DrawResult) async throws -> [LottoDrawPrizeInfo] {
+        try await service.fetchDrawPrizes(for: draw)
+    }
 }

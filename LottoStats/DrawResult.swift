@@ -2,6 +2,7 @@ import Foundation
 
 struct DrawResult: Identifiable {
     let id = UUID()
+    let drawSystemId: Int?
     let game: LottoGame
     let drawDate: Date
     let numbers: [Int]
@@ -13,17 +14,19 @@ struct DrawResult: Identifiable {
     }
     
     init(
+        drawSystemId: Int? = nil,
         game: LottoGame = .lotto,
         drawDate: Date,
         numbers: [Int],
         plusNumbers: [Int]? = nil,
         extraNumbers: [Int]? = nil
     ) {
+        self.drawSystemId = drawSystemId
         self.game = game
         self.drawDate = drawDate
-        self.numbers = numbers
-        self.plusNumbers = plusNumbers
-        self.extraNumbers = extraNumbers
+        self.numbers = numbers.sorted()
+        self.plusNumbers = plusNumbers?.sorted()
+        self.extraNumbers = extraNumbers?.sorted()
     }
 }
 
@@ -78,8 +81,6 @@ extension DrawResult {
     static let nextDrawDate = lottoNextDrawDates.first ?? Date()
     
     static let samples: [DrawResult] = [
-        // MARK: - Lotto
-        
         DrawResult(
             game: .lotto,
             drawDate: makeDate(year: 2026, month: 5, day: 10),
@@ -111,8 +112,6 @@ extension DrawResult {
             plusNumbers: [5, 13, 20, 26, 34, 48]
         ),
         
-        // MARK: - Mini Lotto
-        
         DrawResult(
             game: .miniLotto,
             drawDate: makeDate(year: 2026, month: 5, day: 11),
@@ -138,8 +137,6 @@ extension DrawResult {
             drawDate: makeDate(year: 2026, month: 5, day: 7),
             numbers: [4, 10, 19, 27, 35]
         ),
-        
-        // MARK: - Eurojackpot
         
         DrawResult(
             game: .eurojackpot,
