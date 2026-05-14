@@ -42,12 +42,32 @@ struct LottoJackpotAPIInfo {
     let closestDraw: Date?
 }
 
+struct LottoFrequencyStats {
+    let game: LottoGame
+    let totalDraws: Int
+    let mainNumbers: [LottoFrequencyItem]
+    let specialNumbers: [LottoFrequencyItem]
+    let dateFrom: Date
+    let dateTo: Date
+}
+
+struct LottoFrequencyItem: Identifiable {
+    var id: Int {
+        number
+    }
+    
+    let number: Int
+    let numberOfOccurrences: Int
+    let percentOfOccurrences: Double
+}
+
 protocol LottoService {
     func fetchDraws(for game: LottoGame) async throws -> [DrawResult]
     func fetchLatestDraw(for game: LottoGame) async throws -> DrawResult?
     func fetchUpcomingDrawDates(for game: LottoGame, count: Int) async throws -> [Date]
     func fetchGameInfo(for game: LottoGame) async throws -> LottoGameAPIInfo?
     func fetchJackpotInfo(for game: LottoGame) async throws -> LottoJackpotAPIInfo?
+    func fetchNumberFrequencyStats(for game: LottoGame) async throws -> LottoFrequencyStats?
 }
 
 extension LottoService {
@@ -56,6 +76,10 @@ extension LottoService {
     }
     
     func fetchJackpotInfo(for game: LottoGame) async throws -> LottoJackpotAPIInfo? {
+        nil
+    }
+    
+    func fetchNumberFrequencyStats(for game: LottoGame) async throws -> LottoFrequencyStats? {
         nil
     }
 }
@@ -119,6 +143,37 @@ struct MockLottoService: LottoService {
         )
     }
     
+    func fetchNumberFrequencyStats(for game: LottoGame) async throws -> LottoFrequencyStats? {
+        try await simulateNetworkDelay()
+        
+        let draws = DrawResult.samples
+            .filter { $0.game == game }
+        
+        guard !draws.isEmpty else {
+            return nil
+        }
+        
+        let mainNumbers = draws.flatMap { $0.numbers }
+        let specialNumbers = draws.flatMap { $0.extraNumbers ?? [] }
+        
+        let sortedDates = draws.map { $0.drawDate }.sorted()
+        
+        return LottoFrequencyStats(
+            game: game,
+            totalDraws: draws.count,
+            mainNumbers: frequencyItems(
+                from: mainNumbers,
+                totalDraws: draws.count
+            ),
+            specialNumbers: frequencyItems(
+                from: specialNumbers,
+                totalDraws: draws.count
+            ),
+            dateFrom: sortedDates.first ?? Date(),
+            dateTo: sortedDates.last ?? Date()
+        )
+    }
+    
     private func simulateNetworkDelay() async throws {
         try await Task.sleep(nanoseconds: 300_000_000)
     }
@@ -164,6 +219,34 @@ struct MockLottoService: LottoService {
         case .eurojackpot:
             return "12,50 zł za zakład"
         }
+    }
+    
+    private func frequencyItems(
+        from numbers: [Int],
+        totalDraws: Int
+    ) -> [LottoFrequencyItem] {
+        let grouped = Dictionary(grouping: numbers, by: { $0 })
+        
+        return grouped
+            .map { number, values in
+                let occurrences = values.count
+                let percent = totalDraws > 0
+                    ? (Double(occurrences) / Double(totalDraws) * 100.0).rounded()
+                    : 0
+                
+                return LottoFrequencyItem(
+                    number: number,
+                    numberOfOccurrences: occurrences,
+                    percentOfOccurrences: percent
+                )
+            }
+            .sorted { first, second in
+                if first.numberOfOccurrences == second.numberOfOccurrences {
+                    return first.number < second.number
+                }
+                
+                return first.numberOfOccurrences > second.numberOfOccurrences
+            }
     }
 }
 
@@ -270,6 +353,76 @@ struct OpenLottoService: LottoService {
             jackpotValue: response.jackpotValue,
             jackpotPlusValue: response.jackpotPlusValue,
             closestDraw: response.closestDraw
+        )
+    }
+    
+    func fetchNumberFrequencyStats(for game: LottoGame) async throws -> LottoFrequencyStats? {
+        guard game.isImplemented else {
+            throw LottoServiceError.unsupportedGame
+        }
+        
+        let dateRange = statisticsDateRange()
+        
+        let url = try makeURL(
+            path: "lotteries/draw-statistics/numbers-frequency",
+            queryItems: [
+                URLQueryItem(name: "gameType", value: apiGameType(for: game)),
+                URLQueryItem(name: "dateFrom", value: apiDateString(dateRange.from)),
+                URLQueryItem(name: "dateTo", value: apiDateString(dateRange.to))
+            ]
+        )
+        
+        let response: APINumberFrequencyResponse = try await request(url)
+        
+        let mainNumbers = (response.numberFrequrency ?? [])
+            .compactMap { item -> LottoFrequencyItem? in
+                guard let number = item.number,
+                      let occurrences = item.numberOfOccurrences else {
+                    return nil
+                }
+                
+                return LottoFrequencyItem(
+                    number: number,
+                    numberOfOccurrences: occurrences,
+                    percentOfOccurrences: item.percentOfOccurrences ?? 0
+                )
+            }
+            .sorted { first, second in
+                if first.numberOfOccurrences == second.numberOfOccurrences {
+                    return first.number < second.number
+                }
+                
+                return first.numberOfOccurrences > second.numberOfOccurrences
+            }
+        
+        let specialNumbers = (response.numberSpecialFrequrency ?? [])
+            .compactMap { item -> LottoFrequencyItem? in
+                guard let number = item.number,
+                      let occurrences = item.numberOfOccurrences else {
+                    return nil
+                }
+                
+                return LottoFrequencyItem(
+                    number: number,
+                    numberOfOccurrences: occurrences,
+                    percentOfOccurrences: item.percentOfOccurrences ?? 0
+                )
+            }
+            .sorted { first, second in
+                if first.numberOfOccurrences == second.numberOfOccurrences {
+                    return first.number < second.number
+                }
+                
+                return first.numberOfOccurrences > second.numberOfOccurrences
+            }
+        
+        return LottoFrequencyStats(
+            game: game,
+            totalDraws: response.totalDraws ?? 0,
+            mainNumbers: mainNumbers,
+            specialNumbers: specialNumbers,
+            dateFrom: dateRange.from,
+            dateTo: dateRange.to
         )
     }
     
@@ -707,11 +860,11 @@ struct OpenLottoService: LottoService {
         
         switch game {
         case .lotto:
-            return [3, 5, 7].contains(weekday) // wtorek, czwartek, sobota
+            return [3, 5, 7].contains(weekday)
         case .miniLotto:
             return true
         case .eurojackpot:
-            return [3, 6].contains(weekday) // wtorek, piątek
+            return [3, 6].contains(weekday)
         }
     }
     
@@ -757,6 +910,33 @@ struct OpenLottoService: LottoService {
     
     private func apiDateString(_ date: Date) -> String {
         ISO8601DateFormatter.apiQueryDate.string(from: date)
+    }
+    
+    private func statisticsDateRange() -> (from: Date, to: Date) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        
+        let now = Date()
+        let currentYear = calendar.component(.year, from: now)
+        
+        let from = calendar.date(
+            from: DateComponents(
+                year: currentYear - 1,
+                month: 1,
+                day: 1,
+                hour: 0,
+                minute: 0,
+                second: 0
+            )
+        ) ?? now
+        
+        let startOfToday = calendar.startOfDay(for: now)
+        let to = calendar.date(
+            byAdding: DateComponents(day: 1, second: -1),
+            to: startOfToday
+        ) ?? now
+        
+        return (from, to)
     }
 }
 
@@ -845,6 +1025,18 @@ private struct APIJackpotResponse: Decodable {
     let jackpotValue: Double?
     let jackpotPlusValue: Double?
     let closestDraw: Date?
+}
+
+private struct APINumberFrequencyResponse: Decodable {
+    let totalDraws: Int?
+    let numberFrequrency: [APINumberFrequencyItem]?
+    let numberSpecialFrequrency: [APINumberFrequencyItem]?
+}
+
+private struct APINumberFrequencyItem: Decodable {
+    let number: Int?
+    let numberOfOccurrences: Int?
+    let percentOfOccurrences: Double?
 }
 
 // MARK: - Date helpers

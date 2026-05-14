@@ -24,19 +24,15 @@ struct StatisticsView: View {
                     loadingSection
                 } else if let errorMessage = viewModel.errorMessage {
                     errorSection(message: errorMessage)
-                } else if viewModel.draws.isEmpty {
+                } else if viewModel.stats == nil {
                     emptySection
                 } else {
                     summaryCard
                     mostFrequentCard
                     leastFrequentCard
                     
-                    if !viewModel.extraFrequencyItems.isEmpty {
-                        extraNumbersCard
-                    }
-                    
-                    if !viewModel.plusFrequencyItems.isEmpty {
-                        plusNumbersCard
+                    if !viewModel.specialFrequencyItems.isEmpty {
+                        specialNumbersCard
                     }
                 }
             }
@@ -54,7 +50,7 @@ struct StatisticsView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
             
-            Text("Przegląd najczęściej i najrzadziej losowanych liczb.")
+            Text("Statystyki liczb pobierane bezpośrednio z API LOTTO.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -109,7 +105,7 @@ struct StatisticsView: View {
                 Text("Brak danych")
                     .font(.headline)
                 
-                Text("Nie udało się znaleźć losowań dla wybranej gry.")
+                Text("Nie udało się pobrać statystyk dla wybranej gry.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -126,11 +122,11 @@ struct StatisticsView: View {
                 Text(viewModel.drawCountText)
                     .font(.system(size: 32, weight: .bold))
                 
-                Text("Analizowany okres: \(viewModel.yearRangeText)")
+                Text("Analizowany okres: \(viewModel.periodText)")
                     .font(.title3)
                     .foregroundStyle(.secondary)
                 
-                Text("Gra: \(viewModel.selectedGame.displayName)")
+                Text("Źródło: \(viewModel.dataSourceName)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -167,31 +163,16 @@ struct StatisticsView: View {
         }
     }
     
-    private var extraNumbersCard: some View {
+    private var specialNumbersCard: some View {
         StatisticsCard {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Najczęściej losowane euroliczby")
+                Text(viewModel.specialNumbersTitle)
                     .font(.title2)
                     .fontWeight(.bold)
                 
                 FrequencyGrid(
-                    items: viewModel.extraFrequencyItems,
+                    items: viewModel.specialFrequencyItems,
                     circleColor: .purple
-                )
-            }
-        }
-    }
-    
-    private var plusNumbersCard: some View {
-        StatisticsCard {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Najczęściej losowane Lotto Plus")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
-                FrequencyGrid(
-                    items: viewModel.plusFrequencyItems,
-                    circleColor: .blue
                 )
             }
         }
@@ -201,7 +182,7 @@ struct StatisticsView: View {
 @MainActor
 final class StatisticsViewModel: ObservableObject {
     @Published private(set) var selectedGame: LottoGame = .lotto
-    @Published private(set) var draws: [DrawResult] = []
+    @Published private(set) var stats: LottoFrequencyStats?
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     
@@ -215,40 +196,44 @@ final class StatisticsViewModel: ObservableObject {
         self.repository = repository
     }
     
-    var mostFrequentMainItems: [StatisticsFrequencyItem] {
-        frequencyItems(from: draws.flatMap { $0.numbers })
+    var dataSourceName: String {
+        repository.dataSourceName
+    }
+    
+    var mostFrequentMainItems: [LottoFrequencyItem] {
+        Array((stats?.mainNumbers ?? []).prefix(10))
+    }
+    
+    var leastFrequentMainItems: [LottoFrequencyItem] {
+        Array(stats?.mainNumbers ?? [])
+            .sorted { first, second in
+                if first.numberOfOccurrences == second.numberOfOccurrences {
+                    return first.number < second.number
+                }
+                
+                return first.numberOfOccurrences < second.numberOfOccurrences
+            }
             .prefix(10)
             .map { $0 }
     }
     
-    var leastFrequentMainItems: [StatisticsFrequencyItem] {
-        Array(
-            frequencyItems(from: draws.flatMap { $0.numbers })
-                .suffix(10)
-        )
-        .sorted { first, second in
-            if first.count == second.count {
-                return first.number < second.number
-            }
-            
-            return first.count < second.count
+    var specialFrequencyItems: [LottoFrequencyItem] {
+        Array((stats?.specialNumbers ?? []).prefix(10))
+    }
+    
+    var specialNumbersTitle: String {
+        switch selectedGame {
+        case .eurojackpot:
+            return "Najczęściej losowane euroliczby"
+        case .lotto:
+            return "Najczęściej losowane liczby specjalne"
+        case .miniLotto:
+            return "Najczęściej losowane liczby specjalne"
         }
     }
     
-    var extraFrequencyItems: [StatisticsFrequencyItem] {
-        frequencyItems(from: draws.compactMap(\.extraNumbers).flatMap { $0 })
-            .prefix(10)
-            .map { $0 }
-    }
-    
-    var plusFrequencyItems: [StatisticsFrequencyItem] {
-        frequencyItems(from: draws.compactMap(\.plusNumbers).flatMap { $0 })
-            .prefix(10)
-            .map { $0 }
-    }
-    
     var drawCountText: String {
-        let count = draws.count
+        let count = stats?.totalDraws ?? 0
         
         switch count {
         case 1:
@@ -260,25 +245,19 @@ final class StatisticsViewModel: ObservableObject {
         }
     }
     
-    var yearRangeText: String {
-        let years = draws.map {
-            Calendar.current.component(.year, from: $0.drawDate)
-        }
-        
-        guard let minYear = years.min(),
-              let maxYear = years.max() else {
+    var periodText: String {
+        guard let stats else {
             return "Brak danych"
         }
         
-        if minYear == maxYear {
-            return "\(minYear)"
-        }
+        let start = stats.dateFrom.formatted(date: .abbreviated, time: .omitted)
+        let end = stats.dateTo.formatted(date: .abbreviated, time: .omitted)
         
-        return "\(minYear)–\(maxYear)"
+        return "\(start) – \(end)"
     }
     
     func loadInitialData() async {
-        if draws.isEmpty {
+        if stats == nil {
             await loadData(for: selectedGame)
         }
     }
@@ -293,40 +272,18 @@ final class StatisticsViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-            let fetchedDraws = try await repository.fetchDraws(for: game)
-            draws = fetchedDraws
+            stats = try await repository.fetchNumberFrequencyStats(for: game)
+            
+            if stats == nil {
+                errorMessage = "Brak statystyk dla gry \(game.displayName)."
+            }
         } catch {
-            draws = []
+            stats = nil
             errorMessage = error.localizedDescription
         }
         
         isLoading = false
     }
-    
-    private func frequencyItems(from numbers: [Int]) -> [StatisticsFrequencyItem] {
-        let grouped = Dictionary(grouping: numbers, by: { $0 })
-        
-        return grouped
-            .map { number, values in
-                StatisticsFrequencyItem(
-                    number: number,
-                    count: values.count
-                )
-            }
-            .sorted { first, second in
-                if first.count == second.count {
-                    return first.number < second.number
-                }
-                
-                return first.count > second.count
-            }
-    }
-}
-
-struct StatisticsFrequencyItem: Identifiable {
-    let id = UUID()
-    let number: Int
-    let count: Int
 }
 
 struct StatisticsCard<Content: View>: View {
@@ -345,7 +302,7 @@ struct StatisticsCard<Content: View>: View {
 }
 
 struct FrequencyGrid: View {
-    let items: [StatisticsFrequencyItem]
+    let items: [LottoFrequencyItem]
     let circleColor: Color
     
     private let columns = [
@@ -366,13 +323,27 @@ struct FrequencyGrid: View {
                             .foregroundStyle(.white)
                     }
                     
-                    Text("\(item.count)x")
+                    Text("\(item.numberOfOccurrences)x")
                         .font(.subheadline)
                         .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                    
+                    Text(percentText(for: item))
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
         }
+    }
+    
+    private func percentText(for item: LottoFrequencyItem) -> String {
+        let percent = item.percentOfOccurrences
+        
+        if percent.rounded() == percent {
+            return "\(Int(percent))%"
+        }
+        
+        return String(format: "%.1f%%", percent)
     }
 }
 
