@@ -87,9 +87,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 
-                Text("Klucz API powinien być przechowywany lokalnie w Secrets.plist i nie powinien trafiać na GitHuba.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                
             }
         }
     }
