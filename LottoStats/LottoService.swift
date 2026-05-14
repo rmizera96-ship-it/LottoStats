@@ -26,10 +26,38 @@ enum LottoServiceError: Error, LocalizedError {
     }
 }
 
+struct LottoGameAPIInfo {
+    let game: LottoGame
+    let nextDrawDate: Date?
+    let closestPrizeValue: Double?
+    let draws: String?
+    let couponPrice: String?
+    let closestPrizePoolType: String?
+}
+
+struct LottoJackpotAPIInfo {
+    let game: LottoGame
+    let jackpotValue: Double?
+    let jackpotPlusValue: Double?
+    let closestDraw: Date?
+}
+
 protocol LottoService {
     func fetchDraws(for game: LottoGame) async throws -> [DrawResult]
     func fetchLatestDraw(for game: LottoGame) async throws -> DrawResult?
     func fetchUpcomingDrawDates(for game: LottoGame, count: Int) async throws -> [Date]
+    func fetchGameInfo(for game: LottoGame) async throws -> LottoGameAPIInfo?
+    func fetchJackpotInfo(for game: LottoGame) async throws -> LottoJackpotAPIInfo?
+}
+
+extension LottoService {
+    func fetchGameInfo(for game: LottoGame) async throws -> LottoGameAPIInfo? {
+        nil
+    }
+    
+    func fetchJackpotInfo(for game: LottoGame) async throws -> LottoJackpotAPIInfo? {
+        nil
+    }
 }
 
 // MARK: - Mock service
@@ -63,6 +91,34 @@ struct MockLottoService: LottoService {
         return DrawResult.upcomingDrawDates(for: game, count: count)
     }
     
+    func fetchGameInfo(for game: LottoGame) async throws -> LottoGameAPIInfo? {
+        try await simulateNetworkDelay()
+        
+        return LottoGameAPIInfo(
+            game: game,
+            nextDrawDate: DrawResult.upcomingDrawDates(for: game, count: 1).first,
+            closestPrizeValue: mockPrizeValue(for: game),
+            draws: mockDrawsText(for: game),
+            couponPrice: mockCouponPrice(for: game),
+            closestPrizePoolType: "Guaranteed"
+        )
+    }
+    
+    func fetchJackpotInfo(for game: LottoGame) async throws -> LottoJackpotAPIInfo? {
+        try await simulateNetworkDelay()
+        
+        guard game != .miniLotto else {
+            return nil
+        }
+        
+        return LottoJackpotAPIInfo(
+            game: game,
+            jackpotValue: mockPrizeValue(for: game),
+            jackpotPlusValue: game == .lotto ? 1_000_000 : nil,
+            closestDraw: DrawResult.upcomingDrawDates(for: game, count: 1).first
+        )
+    }
+    
     private func simulateNetworkDelay() async throws {
         try await Task.sleep(nanoseconds: 300_000_000)
     }
@@ -76,6 +132,39 @@ struct MockLottoService: LottoService {
             extraNumbers: draw.extraNumbers?.sorted()
         )
     }
+    
+    private func mockPrizeValue(for game: LottoGame) -> Double? {
+        switch game {
+        case .lotto:
+            return 2_000_000
+        case .miniLotto:
+            return nil
+        case .eurojackpot:
+            return 45_000_000
+        }
+    }
+    
+    private func mockDrawsText(for game: LottoGame) -> String {
+        switch game {
+        case .lotto:
+            return "Wtorki, czwartki i soboty o 22:00"
+        case .miniLotto:
+            return "Codziennie"
+        case .eurojackpot:
+            return "Wtorki i piątki"
+        }
+    }
+    
+    private func mockCouponPrice(for game: LottoGame) -> String {
+        switch game {
+        case .lotto:
+            return "3 zł za zakład"
+        case .miniLotto:
+            return "1,50 zł za zakład"
+        case .eurojackpot:
+            return "12,50 zł za zakład"
+        }
+    }
 }
 
 // MARK: - Real API service
@@ -85,7 +174,6 @@ struct OpenLottoService: LottoService {
     private let apiKey: String
     private let session: URLSession
     
-    // Bezpieczniej pobieramy mniej losowań, żeby nie przeciążyć API LOTTO.
     private let historyDrawLimit = 12
     
     init(
@@ -135,6 +223,56 @@ struct OpenLottoService: LottoService {
         return Array(([nextDraw] + remainingDates).prefix(count))
     }
     
+    func fetchGameInfo(for game: LottoGame) async throws -> LottoGameAPIInfo? {
+        guard game.isImplemented else {
+            throw LottoServiceError.unsupportedGame
+        }
+        
+        let url = try makeURL(
+            path: "lotteries/info",
+            queryItems: [
+                URLQueryItem(name: "gameType", value: apiGameType(for: game))
+            ]
+        )
+        
+        let response: APIGameInfoResponse = try await request(url)
+        
+        return LottoGameAPIInfo(
+            game: game,
+            nextDrawDate: response.nextDrawDate,
+            closestPrizeValue: response.closestPrizeValue,
+            draws: response.draws,
+            couponPrice: response.couponPrice,
+            closestPrizePoolType: response.closestPrizePoolType
+        )
+    }
+    
+    func fetchJackpotInfo(for game: LottoGame) async throws -> LottoJackpotAPIInfo? {
+        guard game.isImplemented else {
+            throw LottoServiceError.unsupportedGame
+        }
+        
+        if game == .miniLotto {
+            return nil
+        }
+        
+        let url = try makeURL(
+            path: "lotteries/info/game-jackpot",
+            queryItems: [
+                URLQueryItem(name: "gameType", value: apiGameType(for: game))
+            ]
+        )
+        
+        let response: APIJackpotResponse = try await request(url)
+        
+        return LottoJackpotAPIInfo(
+            game: game,
+            jackpotValue: response.jackpotValue,
+            jackpotPlusValue: response.jackpotPlusValue,
+            closestDraw: response.closestDraw
+        )
+    }
+    
     // MARK: - Historical results
     
     private func fetchHistoricalDraws(for game: LottoGame) async throws -> [DrawResult] {
@@ -165,7 +303,6 @@ struct OpenLottoService: LottoService {
                 
                 allAPIDraws.append(contentsOf: apiDraws)
                 
-                // Mała pauza między zapytaniami, żeby API LOTTO nie zwracało strony błędu technicznego.
                 try await Task.sleep(nanoseconds: 200_000_000)
             } catch LottoServiceError.noData {
                 continue
@@ -693,6 +830,21 @@ private struct APINextDrawResponse: Decodable {
     let closestPrizeValue: Double?
     let nextDrawDate: Date?
     let playSitePath: String?
+}
+
+private struct APIGameInfoResponse: Decodable {
+    let gameType: String?
+    let nextDrawDate: Date?
+    let closestPrizeValue: Double?
+    let draws: String?
+    let couponPrice: String?
+    let closestPrizePoolType: String?
+}
+
+private struct APIJackpotResponse: Decodable {
+    let jackpotValue: Double?
+    let jackpotPlusValue: Double?
+    let closestDraw: Date?
 }
 
 // MARK: - Date helpers

@@ -7,6 +7,8 @@ final class LottoDataViewModel: ObservableObject {
     @Published private(set) var draws: [DrawResult] = []
     @Published private(set) var latestDraw: DrawResult?
     @Published private(set) var upcomingDrawDates: [Date] = []
+    @Published private(set) var gameInfo: LottoGameAPIInfo?
+    @Published private(set) var jackpotInfo: LottoJackpotAPIInfo?
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     
@@ -17,7 +19,7 @@ final class LottoDataViewModel: ObservableObject {
     }
     
     var nextDrawDate: Date? {
-        upcomingDrawDates.first
+        upcomingDrawDates.first ?? gameInfo?.nextDrawDate ?? jackpotInfo?.closestDraw
     }
     
     init() {
@@ -54,9 +56,26 @@ final class LottoDataViewModel: ObservableObject {
                 count: 10
             )
             
+            var fetchedGameInfo: LottoGameAPIInfo?
+            var fetchedJackpotInfo: LottoJackpotAPIInfo?
+            
+            do {
+                fetchedGameInfo = try await repository.fetchGameInfo(for: game)
+            } catch {
+                print("Nie udało się pobrać informacji o grze:", error)
+            }
+            
+            do {
+                fetchedJackpotInfo = try await repository.fetchJackpotInfo(for: game)
+            } catch {
+                print("Nie udało się pobrać kumulacji:", error)
+            }
+            
             draws = fetchedDraws
             latestDraw = fetchedDraws.first
             upcomingDrawDates = fetchedUpcomingDrawDates
+            gameInfo = fetchedGameInfo
+            jackpotInfo = fetchedJackpotInfo
             
             if fetchedDraws.isEmpty {
                 errorMessage = "Brak danych dla gry \(game.displayName)."
@@ -65,6 +84,8 @@ final class LottoDataViewModel: ObservableObject {
             draws = []
             latestDraw = nil
             upcomingDrawDates = []
+            gameInfo = nil
+            jackpotInfo = nil
             errorMessage = error.localizedDescription
         }
         

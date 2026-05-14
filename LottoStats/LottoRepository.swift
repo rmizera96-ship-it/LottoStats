@@ -78,4 +78,12 @@ struct LottoRepository {
     func fetchUpcomingDrawDates(for game: LottoGame, count: Int) async throws -> [Date] {
         try await service.fetchUpcomingDrawDates(for: game, count: count)
     }
+    
+    func fetchGameInfo(for game: LottoGame) async throws -> LottoGameAPIInfo? {
+        try await service.fetchGameInfo(for: game)
+    }
+    
+    func fetchJackpotInfo(for game: LottoGame) async throws -> LottoJackpotAPIInfo? {
+        try await service.fetchJackpotInfo(for: game)
+    }
 }

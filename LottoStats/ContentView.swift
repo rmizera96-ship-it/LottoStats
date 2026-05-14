@@ -277,6 +277,8 @@ struct HomeView: View {
                 
                 nextDrawCard
                 
+                gameInfoCard
+                
                 todayTicketsCard
                 
                 bestResultCard
@@ -491,6 +493,79 @@ struct HomeView: View {
                         value: "\(selectedGameLinesCount)",
                         subtitle: "Dla tej gry"
                     )
+                }
+            }
+        }
+    }
+    
+    private var gameInfoCard: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Kumulacja i informacje")
+                        .font(.headline)
+                    
+                    Text(viewModel.selectedGame.displayName)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                }
+                
+                HStack {
+                    MetricTile(
+                        title: "Główna pula",
+                        value: moneyText(viewModel.jackpotInfo?.jackpotValue ?? viewModel.gameInfo?.closestPrizeValue),
+                        subtitle: "Najbliższe losowanie"
+                    )
+                    
+                    Spacer()
+                    
+                    if viewModel.selectedGame == .lotto {
+                        MetricTile(
+                            title: "Lotto Plus",
+                            value: moneyText(viewModel.jackpotInfo?.jackpotPlusValue),
+                            subtitle: "Dodatkowa pula"
+                        )
+                    } else {
+                        MetricTile(
+                            title: "Najbliższa data",
+                            value: shortDateText(viewModel.jackpotInfo?.closestDraw ?? viewModel.gameInfo?.nextDrawDate),
+                            subtitle: "Losowanie"
+                        )
+                    }
+                }
+                
+                Divider()
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    if let couponPrice = viewModel.gameInfo?.couponPrice {
+                        infoRow(
+                            icon: "ticket.fill",
+                            title: "Cena zakładu",
+                            value: couponPrice
+                        )
+                    }
+                    
+                    if let draws = viewModel.gameInfo?.draws {
+                        infoRow(
+                            icon: "calendar",
+                            title: "Losowania",
+                            value: draws
+                        )
+                    }
+                    
+                    if let poolType = viewModel.gameInfo?.closestPrizePoolType {
+                        infoRow(
+                            icon: "info.circle.fill",
+                            title: "Typ puli",
+                            value: poolTypeText(poolType)
+                        )
+                    }
+                }
+                
+                if viewModel.gameInfo == nil && viewModel.jackpotInfo == nil {
+                    Text("Brak dodatkowych informacji dla tej gry.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -814,6 +889,62 @@ struct HomeView: View {
         }
     }
     
+    private func infoRow(
+        icon: String,
+        title: String,
+        value: String
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(.blue)
+                .frame(width: 20)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                
+                Text(value)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+            }
+            
+            Spacer()
+        }
+    }
+    
+    private func moneyText(_ value: Double?) -> String {
+        guard let value else {
+            return "Brak danych"
+        }
+        
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "pl_PL")
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "PLN"
+        formatter.maximumFractionDigits = 0
+        
+        return formatter.string(from: NSNumber(value: value)) ?? "\(Int(value)) zł"
+    }
+    
+    private func shortDateText(_ date: Date?) -> String {
+        guard let date else {
+            return "Brak danych"
+        }
+        
+        return date.formatted(date: .abbreviated, time: .omitted)
+    }
+    
+    private func poolTypeText(_ value: String) -> String {
+        switch value {
+        case "Guaranteed":
+            return "Gwarantowana"
+        default:
+            return value
+        }
+    }
+    
     private func hitName(for count: Int) -> String {
         switch count {
         case 0:
@@ -880,6 +1011,8 @@ private struct MetricTile: View {
             Text(value)
                 .font(.title2)
                 .fontWeight(.bold)
+                .minimumScaleFactor(0.75)
+                .lineLimit(2)
             
             Text(title)
                 .font(.caption)
