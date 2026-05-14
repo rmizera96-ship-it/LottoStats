@@ -610,7 +610,7 @@ struct OpenLottoService: LottoService {
                 
                 allAPIDraws.append(contentsOf: apiDraws)
                 
-                try await Task.sleep(nanoseconds: 200_000_000)
+                try await Task.sleep(nanoseconds: 800_000_000)
             } catch LottoServiceError.noData {
                 continue
             } catch {

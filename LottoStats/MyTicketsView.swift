@@ -3,11 +3,23 @@ import SwiftUI
 struct MyTicketsView: View {
     @ObservedObject var viewModel: TicketViewModel
     
+    private var selectedGameBinding: Binding<LottoGame> {
+        Binding {
+            viewModel.selectedGame
+        } set: { game in
+            Task {
+                await viewModel.selectGame(game)
+            }
+        }
+    }
+    
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 
                 headerView
+                
+                ticketResultsSourceSection
                 
                 gamePickerSection
                 
@@ -64,6 +76,10 @@ struct MyTicketsView: View {
             .padding()
         }
         .navigationTitle("Moje kupony")
+        .task {
+            await viewModel.refreshUpcomingDrawDates()
+            await viewModel.refreshTicketResults()
+        }
         .alert("Usunąć kupon?", isPresented: $viewModel.showDeleteAlert) {
             Button("Usuń", role: .destructive) {
                 viewModel.confirmDelete()
@@ -89,12 +105,48 @@ struct MyTicketsView: View {
         }
     }
     
+    private var ticketResultsSourceSection: some View {
+        AppCard {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Sprawdzanie kuponów")
+                        .font(.headline)
+                    
+                    Text("Źródło wyników: \(viewModel.ticketResultsSourceName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    if let errorMessage = viewModel.ticketResultsErrorMessage {
+                        Text(errorMessage)
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                
+                Spacer()
+                
+                if viewModel.isLoadingTicketResults {
+                    ProgressView()
+                } else {
+                    Button {
+                        Task {
+                            await viewModel.refreshTicketResults()
+                        }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.headline)
+                    }
+                }
+            }
+        }
+    }
+    
     private var gamePickerSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Gra")
                 .font(.headline)
             
-            Picker("Gra", selection: $viewModel.selectedGame) {
+            Picker("Gra", selection: selectedGameBinding) {
                 ForEach(viewModel.availableGamesForTickets) { game in
                     Text(game.displayName)
                         .tag(game)
@@ -111,20 +163,55 @@ struct MyTicketsView: View {
     private var selectedDrawSection: some View {
         AppCard {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Kupon na losowanie")
-                    .font(.headline)
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Kupon na losowanie")
+                            .font(.headline)
+                        
+                        Text(viewModel.selectedGame.displayName)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                    }
+                    
+                    Spacer()
+                    
+                    if viewModel.isLoadingDrawDates {
+                        ProgressView()
+                    } else {
+                        Button {
+                            Task {
+                                await viewModel.refreshUpcomingDrawDates()
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.headline)
+                        }
+                    }
+                }
                 
-                Text(viewModel.selectedGame.displayName)
-                    .font(.title2)
-                    .fontWeight(.bold)
+                Text("Źródło dat: \(viewModel.drawDatesSourceName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                if let drawDatesErrorMessage = viewModel.drawDatesErrorMessage {
+                    Text(drawDatesErrorMessage)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
                 
                 if let firstDate = viewModel.selectedDrawDates.first,
                    let lastDate = viewModel.selectedDrawDates.last {
-                    Text("\(firstDate.formatted(date: .long, time: .omitted)) - \(lastDate.formatted(date: .long, time: .omitted))")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    if Calendar.current.isDate(firstDate, inSameDayAs: lastDate) {
+                        Text(firstDate.formatted(date: .long, time: .omitted))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("\(firstDate.formatted(date: .long, time: .omitted)) - \(lastDate.formatted(date: .long, time: .omitted))")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
-                    Text("Brak dostępnych dat losowań dla tej gry.")
+                    Text("Brak dostępnych dat losowań z API dla tej gry.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

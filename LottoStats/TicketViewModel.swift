@@ -68,6 +68,14 @@ enum TicketGameFilter: String, CaseIterable, Identifiable {
 final class TicketViewModel: ObservableObject {
     @Published private(set) var tickets: [LottoTicket] = []
     
+    @Published private(set) var isLoadingTicketResults = false
+    @Published private(set) var ticketResultsSourceName = "Lokalne dane"
+    @Published private(set) var ticketResultsErrorMessage: String?
+    
+    @Published private(set) var isLoadingDrawDates = false
+    @Published private(set) var drawDatesSourceName = "API LOTTO"
+    @Published private(set) var drawDatesErrorMessage: String?
+    
     @Published var selectedGame: LottoGame = .lotto {
         didSet {
             if !currentRules.supportsPlus {
@@ -100,6 +108,9 @@ final class TicketViewModel: ObservableObject {
     private let repository: LottoRepository
     private let ticketChecker: TicketChecker
     
+    private var cachedDrawResultsByGame: [LottoGame: [DrawResult]] = [:]
+    private var cachedUpcomingDrawDatesByGame: [LottoGame: [Date]] = [:]
+    
     init() {
         self.repository = LottoRepository.shared
         self.ticketChecker = TicketChecker()
@@ -124,10 +135,8 @@ final class TicketViewModel: ObservableObject {
     }
     
     var selectedDrawDates: [Date] {
-        repository.upcomingDrawDates(
-            for: selectedGame,
-            count: selectedDrawCount
-        )
+        let dates = cachedUpcomingDrawDatesByGame[selectedGame] ?? []
+        return Array(dates.prefix(selectedDrawCount))
     }
     
     var selectedMainNumbers: [Int] {
@@ -191,8 +200,112 @@ final class TicketViewModel: ObservableObject {
         return "\(draftLines.count) zestawy"
     }
     
+    func selectGame(_ game: LottoGame) async {
+        selectedGame = game
+        await refreshUpcomingDrawDates(for: game)
+    }
+    
+    func refreshUpcomingDrawDates(for game: LottoGame? = nil) async {
+        let targetGame = game ?? selectedGame
+        
+        isLoadingDrawDates = true
+        drawDatesErrorMessage = nil
+        
+        do {
+            let apiDates = try await repository.fetchUpcomingDrawDates(
+                for: targetGame,
+                count: 1
+            )
+            
+            guard let nextDrawDate = apiDates.first else {
+                cachedUpcomingDrawDatesByGame[targetGame] = []
+                drawDatesSourceName = repository.dataSourceName
+                drawDatesErrorMessage = "API nie zwróciło daty najbliższego losowania."
+                isLoadingDrawDates = false
+                return
+            }
+            
+            let generatedDates = generateUpcomingDrawDates(
+                from: nextDrawDate,
+                for: targetGame,
+                count: 10
+            )
+            
+            cachedUpcomingDrawDatesByGame[targetGame] = generatedDates
+            drawDatesSourceName = repository.dataSourceName
+        } catch {
+            print("Nie udało się pobrać dat losowań dla \(targetGame.displayName):", error)
+            
+            cachedUpcomingDrawDatesByGame[targetGame] = []
+            drawDatesSourceName = repository.dataSourceName
+            drawDatesErrorMessage = "Nie udało się pobrać dat losowań z API. Spróbuj odświeżyć."
+        }
+        
+        isLoadingDrawDates = false
+    }
+    
     func checkResult(for ticket: LottoTicket) -> TicketCheckResult {
-        ticketChecker.check(ticket: ticket)
+        let drawResults = cachedDrawResultsByGame[ticket.game] ?? repository.draws(for: ticket.game)
+        
+        return ticketChecker.check(
+            ticket: ticket,
+            drawResults: drawResults
+        )
+    }
+    
+    func refreshTicketResults() async {
+        if isLoadingTicketResults {
+            return
+        }
+        
+        isLoadingTicketResults = true
+        ticketResultsErrorMessage = nil
+        
+        let today = Calendar.current.startOfDay(for: Date())
+        
+        let gamesToRefresh = availableGamesForTickets.filter { game in
+            tickets.contains { ticket in
+                ticket.game == game &&
+                ticket.drawDates.contains { drawDate in
+                    Calendar.current.startOfDay(for: drawDate) <= today
+                }
+            }
+        }
+        
+        guard !gamesToRefresh.isEmpty else {
+            ticketResultsSourceName = "Brak kuponów do sprawdzenia"
+            isLoadingTicketResults = false
+            return
+        }
+        
+        var updatedCache = cachedDrawResultsByGame
+        var failedGames: [String] = []
+        
+        for game in gamesToRefresh {
+            do {
+                let draws = try await repository.fetchDraws(for: game)
+                updatedCache[game] = draws
+                
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            } catch {
+                print("Nie udało się pobrać wyników dla \(game.displayName):", error)
+                
+                failedGames.append(game.displayName)
+                
+                if updatedCache[game] == nil {
+                    updatedCache[game] = repository.draws(for: game)
+                }
+            }
+        }
+        
+        cachedDrawResultsByGame = updatedCache
+        ticketResultsSourceName = repository.dataSourceName
+        
+        if !failedGames.isEmpty {
+            ticketResultsErrorMessage = "Nie udało się pobrać wyników dla: \(failedGames.joined(separator: ", ")). Te kupony mogą używać danych lokalnych."
+        }
+        
+        isLoadingTicketResults = false
     }
     
     func isMainNumberSelected(_ number: Int) -> Bool {
@@ -313,6 +426,12 @@ final class TicketViewModel: ObservableObject {
         
         guard !linesToSave.isEmpty else {
             errorMessage = "Dodaj co najmniej jeden zestaw liczb do kuponu."
+            successMessage = nil
+            return
+        }
+        
+        guard !selectedDrawDates.isEmpty else {
+            errorMessage = "Brak dat losowań z API. Odśwież daty losowań i spróbuj ponownie."
             successMessage = nil
             return
         }
@@ -466,5 +585,69 @@ final class TicketViewModel: ObservableObject {
     
     private func saveTickets() {
         TicketStorage.save(tickets)
+    }
+    
+    private func generateUpcomingDrawDates(
+        from nextDrawDate: Date,
+        for game: LottoGame,
+        count: Int
+    ) -> [Date] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Warsaw") ?? .current
+        
+        let drawTime = calendar.dateComponents(
+            [.hour, .minute, .second],
+            from: nextDrawDate
+        )
+        
+        var currentDay = calendar.startOfDay(for: nextDrawDate)
+        var dates: [Date] = []
+        
+        while dates.count < count {
+            if isDrawDay(currentDay, for: game, calendar: calendar) {
+                var components = calendar.dateComponents(
+                    [.year, .month, .day],
+                    from: currentDay
+                )
+                
+                components.hour = drawTime.hour ?? 22
+                components.minute = drawTime.minute ?? 0
+                components.second = drawTime.second ?? 0
+                
+                if let date = calendar.date(from: components),
+                   date >= nextDrawDate.addingTimeInterval(-60) {
+                    dates.append(date)
+                }
+            }
+            
+            guard let nextDay = calendar.date(
+                byAdding: .day,
+                value: 1,
+                to: currentDay
+            ) else {
+                break
+            }
+            
+            currentDay = nextDay
+        }
+        
+        return dates
+    }
+    
+    private func isDrawDay(
+        _ date: Date,
+        for game: LottoGame,
+        calendar: Calendar
+    ) -> Bool {
+        let weekday = calendar.component(.weekday, from: date)
+        
+        switch game {
+        case .lotto:
+            return [3, 5, 7].contains(weekday) // wtorek, czwartek, sobota
+        case .miniLotto:
+            return true // codziennie
+        case .eurojackpot:
+            return [3, 6].contains(weekday) // wtorek, piątek
+        }
     }
 }

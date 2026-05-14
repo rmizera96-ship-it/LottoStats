@@ -121,54 +121,28 @@ struct TicketChecker {
     }
     
     func check(ticket: LottoTicket) -> TicketCheckResult {
+        let fallbackDraws = repository.draws(for: ticket.game)
+        return check(ticket: ticket, drawResults: fallbackDraws)
+    }
+    
+    func check(
+        ticket: LottoTicket,
+        drawResults: [DrawResult]
+    ) -> TicketCheckResult {
+        let matchingDrawResults = drawResults.filter { result in
+            result.game == ticket.game
+        }
+        
         let checkedDraws = ticket.drawDates.compactMap { drawDate -> SingleDrawCheckResult? in
-            guard let result = repository.result(
-                for: ticket.gameName,
-                drawDate: drawDate
-            ) else {
+            guard let result = matchingDrawResults.first(where: { result in
+                Calendar.current.isDate(result.drawDate, inSameDayAs: drawDate)
+            }) else {
                 return nil
             }
             
-            let lottoNumbers = Set(result.numbers)
-            let plusNumbersSet = Set(result.plusNumbers ?? [])
-            let extraNumbersSet = Set(result.extraNumbers ?? [])
-            
-            let hasPlusResult = result.plusNumbers != nil
-            let hasExtraResult = result.extraNumbers != nil
-            
-            let lineResults = ticket.lines.enumerated().map { index, line in
-                let lottoMatchedNumbers = line.numbers.filter {
-                    lottoNumbers.contains($0)
-                }
-                
-                let plusMatchedNumbers: [Int]
-                
-                if ticket.includesPlus {
-                    plusMatchedNumbers = line.numbers.filter {
-                        plusNumbersSet.contains($0)
-                    }
-                } else {
-                    plusMatchedNumbers = []
-                }
-                
-                let extraMatchedNumbers = line.extraNumbers.filter {
-                    extraNumbersSet.contains($0)
-                }
-                
-                return TicketLineCheckResult(
-                    line: line,
-                    lineIndex: index,
-                    lottoMatchedNumbers: lottoMatchedNumbers,
-                    plusMatchedNumbers: plusMatchedNumbers,
-                    extraMatchedNumbers: extraMatchedNumbers
-                )
-            }
-            
-            return SingleDrawCheckResult(
-                drawDate: result.drawDate,
-                lineResults: lineResults,
-                hasPlusResult: hasPlusResult,
-                hasExtraResult: hasExtraResult
+            return makeSingleDrawCheckResult(
+                ticket: ticket,
+                result: result
             )
         }
         
@@ -181,6 +155,53 @@ struct TicketChecker {
             status: status,
             checkedDraws: checkedDraws,
             totalDrawsCount: ticket.drawDates.count
+        )
+    }
+    
+    private func makeSingleDrawCheckResult(
+        ticket: LottoTicket,
+        result: DrawResult
+    ) -> SingleDrawCheckResult {
+        let lottoNumbers = Set(result.numbers)
+        let plusNumbersSet = Set(result.plusNumbers ?? [])
+        let extraNumbersSet = Set(result.extraNumbers ?? [])
+        
+        let hasPlusResult = result.plusNumbers != nil
+        let hasExtraResult = result.extraNumbers != nil
+        
+        let lineResults = ticket.lines.enumerated().map { index, line in
+            let lottoMatchedNumbers = line.numbers.filter {
+                lottoNumbers.contains($0)
+            }
+            
+            let plusMatchedNumbers: [Int]
+            
+            if ticket.includesPlus {
+                plusMatchedNumbers = line.numbers.filter {
+                    plusNumbersSet.contains($0)
+                }
+            } else {
+                plusMatchedNumbers = []
+            }
+            
+            let extraMatchedNumbers = line.extraNumbers.filter {
+                extraNumbersSet.contains($0)
+            }
+            
+            return TicketLineCheckResult(
+                line: line,
+                lineIndex: index,
+                lottoMatchedNumbers: lottoMatchedNumbers.sorted(),
+                plusMatchedNumbers: plusMatchedNumbers.sorted(),
+                extraMatchedNumbers: extraMatchedNumbers.sorted()
+            )
+        }
+        
+        return SingleDrawCheckResult(
+            drawDate: result.drawDate,
+            lineResults: lineResults,
+            hasPlusResult: hasPlusResult,
+            hasExtraResult: hasExtraResult
         )
     }
     
