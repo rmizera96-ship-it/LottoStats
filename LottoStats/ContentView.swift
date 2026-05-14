@@ -279,6 +279,8 @@ struct HomeView: View {
                 
                 gameInfoCard
                 
+                recentHighWinsCard
+                
                 todayTicketsCard
                 
                 bestResultCard
@@ -566,6 +568,48 @@ struct HomeView: View {
                     Text("Brak dodatkowych informacji dla tej gry.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+    
+    private var recentHighWinsCard: some View {
+        AppCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Ostatnie wysokie wygrane")
+                            .font(.headline)
+                        
+                        Text("Najnowsze odnotowane wygrane z API LOTTO.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Image(systemName: "trophy.fill")
+                        .font(.title2)
+                        .foregroundStyle(.yellow)
+                }
+                
+                if viewModel.highestWins.isEmpty {
+                    Text("Brak danych o ostatnich wysokich wygranych.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    let visibleWins = Array(viewModel.highestWins.prefix(5))
+                    
+                    ForEach(Array(visibleWins.enumerated()), id: \.element.id) { index, win in
+                        HighestWinHomeRow(
+                            index: index + 1,
+                            win: win
+                        )
+                        
+                        if win.id != visibleWins.last?.id {
+                            Divider()
+                        }
+                    }
                 }
             }
         }
@@ -1053,6 +1097,86 @@ private struct UpcomingDrawItem: Identifiable {
         } else {
             return "Minęło"
         }
+    }
+}
+
+private struct HighestWinHomeRow: View {
+    let index: Int
+    let win: LottoHighestWin
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(index)")
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundStyle(.white)
+                .frame(width: 26, height: 26)
+                .background(Color.blue)
+                .clipShape(Circle())
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(win.gameType)
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                    
+                    if let rank = win.rank,
+                       !rank.isEmpty,
+                       rank.lowercased() != "brak" {
+                        Text(rank)
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color(.tertiarySystemBackground))
+                            .clipShape(Capsule())
+                    }
+                }
+                
+                Text(placeText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                if let winDate = win.winDateUtc {
+                    Text(winDate.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            
+            Spacer()
+            
+            Text(moneyText(win.amountFixed))
+                .font(.subheadline)
+                .fontWeight(.bold)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+    
+    private var placeText: String {
+        let place = win.place?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let address = win.address?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        
+        if !place.isEmpty && place != "-" {
+            return place
+        }
+        
+        if !address.isEmpty && address != "-" {
+            return address
+        }
+        
+        return "Brak lokalizacji"
+    }
+    
+    private func moneyText(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "pl_PL")
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "PLN"
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = value.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 2
+        
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value) zł"
     }
 }
 

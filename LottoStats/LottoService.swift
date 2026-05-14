@@ -82,6 +82,49 @@ struct LottoPrizeRank: Identifiable {
     let prizeValue: Double
 }
 
+struct LottoHighestWin: Identifiable {
+    let id = UUID()
+    let rank: String?
+    let place: String?
+    let address: String?
+    let gameType: String
+    let winDateUtc: Date?
+    let amountFixed: Double
+    let onlineWin: Bool
+}
+
+extension LottoHighestWin {
+    static let samples: [LottoHighestWin] = [
+        LottoHighestWin(
+            rank: "I (5+2)",
+            place: "pow. krotoszyński",
+            address: "-",
+            gameType: "EuroJackpot",
+            winDateUtc: Calendar.current.date(from: DateComponents(year: 2022, month: 8, day: 12)),
+            amountFixed: 213_584_986,
+            onlineWin: false
+        ),
+        LottoHighestWin(
+            rank: "I (5+2)",
+            place: "pow. bieruńsko-lędziński",
+            address: "-",
+            gameType: "EuroJackpot",
+            winDateUtc: Calendar.current.date(from: DateComponents(year: 2021, month: 8, day: 13)),
+            amountFixed: 206_550_000,
+            onlineWin: false
+        ),
+        LottoHighestWin(
+            rank: "brak",
+            place: "Skrzyszów",
+            address: "Skrzyszów 27c",
+            gameType: "Lotto",
+            winDateUtc: Calendar.current.date(from: DateComponents(year: 2017, month: 3, day: 16)),
+            amountFixed: 36_726_210.20,
+            onlineWin: false
+        )
+    ]
+}
+
 protocol LottoService {
     func fetchDraws(for game: LottoGame) async throws -> [DrawResult]
     func fetchLatestDraw(for game: LottoGame) async throws -> DrawResult?
@@ -90,6 +133,7 @@ protocol LottoService {
     func fetchJackpotInfo(for game: LottoGame) async throws -> LottoJackpotAPIInfo?
     func fetchNumberFrequencyStats(for game: LottoGame) async throws -> LottoFrequencyStats?
     func fetchDrawPrizes(for draw: DrawResult) async throws -> [LottoDrawPrizeInfo]
+    func fetchHighestWins(limit: Int) async throws -> [LottoHighestWin]
 }
 
 extension LottoService {
@@ -107,6 +151,10 @@ extension LottoService {
     
     func fetchDrawPrizes(for draw: DrawResult) async throws -> [LottoDrawPrizeInfo] {
         []
+    }
+    
+    func fetchHighestWins(limit: Int) async throws -> [LottoHighestWin] {
+        Array(LottoHighestWin.samples.prefix(limit))
     }
 }
 
@@ -209,6 +257,11 @@ struct MockLottoService: LottoService {
                 ]
             )
         ]
+    }
+    
+    func fetchHighestWins(limit: Int) async throws -> [LottoHighestWin] {
+        try await simulateNetworkDelay()
+        return Array(LottoHighestWin.samples.prefix(limit))
     }
     
     private func simulateNetworkDelay() async throws {
@@ -501,6 +554,32 @@ struct OpenLottoService: LottoService {
         }
     }
     
+    func fetchHighestWins(limit: Int) async throws -> [LottoHighestWin] {
+        let url = try makeURL(
+            path: "lotteries/highest-wins",
+            queryItems: [
+                URLQueryItem(name: "index", value: "1"),
+                URLQueryItem(name: "size", value: "\(limit)"),
+                URLQueryItem(name: "sort", value: "winDateUtc"),
+                URLQueryItem(name: "order", value: "DESC")
+            ]
+        )
+        
+        let response: APIHighestWinsResponse = try await request(url)
+        
+        return response.items.map { item in
+            LottoHighestWin(
+                rank: item.rank,
+                place: item.place,
+                address: item.address,
+                gameType: item.gameType ?? "Nieznana gra",
+                winDateUtc: item.winDateUtc,
+                amountFixed: item.amountFixed ?? 0,
+                onlineWin: item.onlineWin ?? false
+            )
+        }
+    }
+    
     // MARK: - Historical results
     
     private func fetchHistoricalDraws(for game: LottoGame) async throws -> [DrawResult] {
@@ -603,8 +682,6 @@ struct OpenLottoService: LottoService {
         return response.items
     }
     
-    // MARK: - Last results fallback
-    
     private func fetchLastDrawsFallback(for game: LottoGame) async throws -> [DrawResult] {
         let apiDraws = try await fetchLastResults(for: apiGameType(for: game))
         
@@ -656,8 +733,6 @@ struct OpenLottoService: LottoService {
         
         return try await request(url)
     }
-    
-    // MARK: - Next draw
     
     private func fetchNextDrawDate(for game: LottoGame) async throws -> Date? {
         let url = try makeURL(
@@ -717,9 +792,11 @@ struct OpenLottoService: LottoService {
         
         guard (200...299).contains(httpResponse.statusCode) else {
             print("LOTTO API status code:", httpResponse.statusCode)
+            
             if let body = String(data: data, encoding: .utf8) {
                 print("LOTTO API body:", body)
             }
+            
             throw LottoServiceError.invalidResponse
         }
         
@@ -766,9 +843,11 @@ struct OpenLottoService: LottoService {
             return try decoder.decode(T.self, from: data)
         } catch {
             print("Błąd dekodowania API:", error)
+            
             if let body = String(data: data, encoding: .utf8) {
                 print("LOTTO API body:", body)
             }
+            
             throw LottoServiceError.decodingFailed
         }
     }
@@ -1132,6 +1211,23 @@ private struct APIDrawPrizesResponse: Decodable {
 private struct APIPrizeRankResponse: Decodable {
     let prize: Int?
     let prizeValue: Double?
+}
+
+private struct APIHighestWinsResponse: Decodable {
+    let totalRows: Int?
+    let items: [APIHighestWinItem]
+    let meta: [String: String]?
+    let code: Int?
+}
+
+private struct APIHighestWinItem: Decodable {
+    let rank: String?
+    let place: String?
+    let address: String?
+    let gameType: String?
+    let winDateUtc: Date?
+    let amountFixed: Double?
+    let onlineWin: Bool?
 }
 
 // MARK: - Date helpers

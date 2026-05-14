@@ -9,6 +9,7 @@ final class LottoDataViewModel: ObservableObject {
     @Published private(set) var upcomingDrawDates: [Date] = []
     @Published private(set) var gameInfo: LottoGameAPIInfo?
     @Published private(set) var jackpotInfo: LottoJackpotAPIInfo?
+    @Published private(set) var highestWins: [LottoHighestWin] = []
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     
@@ -58,6 +59,7 @@ final class LottoDataViewModel: ObservableObject {
             
             var fetchedGameInfo: LottoGameAPIInfo?
             var fetchedJackpotInfo: LottoJackpotAPIInfo?
+            var fetchedHighestWins: [LottoHighestWin] = highestWins
             
             do {
                 fetchedGameInfo = try await repository.fetchGameInfo(for: game)
@@ -71,11 +73,20 @@ final class LottoDataViewModel: ObservableObject {
                 print("Nie udało się pobrać kumulacji:", error)
             }
             
+            do {
+                if highestWins.isEmpty {
+                    fetchedHighestWins = try await repository.fetchHighestWins(limit: 10)
+                }
+            } catch {
+                print("Nie udało się pobrać ostatnich wysokich wygranych:", error)
+            }
+            
             draws = fetchedDraws
             latestDraw = fetchedDraws.first
             upcomingDrawDates = fetchedUpcomingDrawDates
             gameInfo = fetchedGameInfo
             jackpotInfo = fetchedJackpotInfo
+            highestWins = fetchedHighestWins
             
             if fetchedDraws.isEmpty {
                 errorMessage = "Brak danych dla gry \(game.displayName)."

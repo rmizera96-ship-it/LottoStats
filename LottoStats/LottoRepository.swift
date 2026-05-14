@@ -94,4 +94,8 @@ struct LottoRepository {
     func fetchDrawPrizes(for draw: DrawResult) async throws -> [LottoDrawPrizeInfo] {
         try await service.fetchDrawPrizes(for: draw)
     }
+    
+    func fetchHighestWins(limit: Int = 10) async throws -> [LottoHighestWin] {
+        try await service.fetchHighestWins(limit: limit)
+    }
 }
