@@ -44,6 +44,7 @@ struct MockLottoService: LottoService {
         
         return DrawResult.samples
             .filter { $0.game == game }
+            .map { sortedDraw($0) }
             .sorted { $0.drawDate > $1.drawDate }
     }
     
@@ -65,6 +66,16 @@ struct MockLottoService: LottoService {
     private func simulateNetworkDelay() async throws {
         try await Task.sleep(nanoseconds: 300_000_000)
     }
+    
+    private func sortedDraw(_ draw: DrawResult) -> DrawResult {
+        DrawResult(
+            game: draw.game,
+            drawDate: draw.drawDate,
+            numbers: draw.numbers.sorted(),
+            plusNumbers: draw.plusNumbers?.sorted(),
+            extraNumbers: draw.extraNumbers?.sorted()
+        )
+    }
 }
 
 // MARK: - Real API service
@@ -74,7 +85,7 @@ struct OpenLottoService: LottoService {
     private let apiKey: String
     private let session: URLSession
     
-    // Bezpieczniej pobieramy mniej losowań, żeby nie przeciążyć API.
+    // Bezpieczniej pobieramy mniej losowań, żeby nie przeciążyć API LOTTO.
     private let historyDrawLimit = 12
     
     init(
@@ -409,8 +420,8 @@ struct OpenLottoService: LottoService {
         let game = apiGameName.flatMap { LottoGame.fromAPIName($0) } ?? fallbackGame
         
         let drawDate = firstResult?.drawDate ?? apiDraw.drawDate
-        let numbers = firstResult?.resultsJson ?? []
-        let specialResults = firstResult?.specialResults ?? []
+        let numbers = (firstResult?.resultsJson ?? []).sorted()
+        let specialResults = (firstResult?.specialResults ?? []).sorted()
         
         guard let drawDate, !numbers.isEmpty else {
             return nil
@@ -445,7 +456,7 @@ struct OpenLottoService: LottoService {
         let firstResult = apiDraw.results?.first
         
         let drawDate = firstResult?.drawDate ?? apiDraw.drawDate
-        let numbers = firstResult?.resultsJson ?? []
+        let numbers = (firstResult?.resultsJson ?? []).sorted()
         
         guard let drawDate, !numbers.isEmpty else {
             return nil
@@ -473,9 +484,9 @@ struct OpenLottoService: LottoService {
             return DrawResult(
                 game: lottoDraw.game,
                 drawDate: lottoDraw.drawDate,
-                numbers: lottoDraw.numbers,
-                plusNumbers: matchingPlusDraw?.numbers,
-                extraNumbers: lottoDraw.extraNumbers
+                numbers: lottoDraw.numbers.sorted(),
+                plusNumbers: matchingPlusDraw?.numbers.sorted(),
+                extraNumbers: lottoDraw.extraNumbers?.sorted()
             )
         }
     }
