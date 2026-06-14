@@ -8,12 +8,3 @@ LottoStat/Secrets.plist
 xcuserdata/
 *.xcuserstate
 DerivedData/
-
-# All secrets
-**/Secrets.plist
-**/GoogleService-Info.plist
-
-# Xcode local files
-**/xcuserdata/
-DerivedData/
-.DS_Store

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var ticketViewModel = TicketViewModel()
+    @StateObject private var authViewModel = AuthenticationViewModel()
     
     var body: some View {
         TabView {
@@ -34,7 +35,10 @@ struct ContentView: View {
             }
             
             NavigationStack {
-                SettingsView(ticketViewModel: ticketViewModel)
+                SettingsView(
+                    ticketViewModel: ticketViewModel,
+                    authViewModel: authViewModel
+                )
             }
             .tabItem {
                 Label("Ustawienia", systemImage: "gearshape.fill")
@@ -44,7 +48,15 @@ struct ContentView: View {
         .toolbarBackground(.ultraThinMaterial, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
         .task {
+            authViewModel.startListening()
             await ticketViewModel.refreshTicketResults()
+        }
+        .task(id: authViewModel.userID) {
+            await ticketViewModel.updateAuthentication(
+                userID: authViewModel.userID,
+                email: authViewModel.email
+            )
+            await ticketViewModel.refreshTicketResults(includePrizes: true)
         }
     }
 }

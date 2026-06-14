@@ -78,6 +78,12 @@ final class TicketViewModel: ObservableObject {
 
     @Published private(set) var isLoadingTicketPrizes = false
     @Published private(set) var ticketPrizesErrorMessage: String?
+
+    @Published private(set) var isCloudSyncing = false
+    @Published private(set) var cloudSyncMessage: String?
+    @Published private(set) var cloudSyncErrorMessage: String?
+    @Published private(set) var lastCloudSyncDate: Date?
+    @Published private(set) var isUsingCloudStorage = false
     
     @Published var selectedGame: LottoGame = .lotto {
         didSet {
@@ -111,6 +117,10 @@ final class TicketViewModel: ObservableObject {
     private let repository: LottoRepository
     private let ticketChecker: TicketChecker
     private let ticketPrizeCalculator = TicketPrizeCalculator()
+    private let cloudTicketService: CloudTicketService
+
+    private var currentUserID: String?
+    private var currentUserEmail: String?
     
     private var cachedDrawResultsByGame: [LottoGame: [DrawResult]] = [:]
     private var cachedUpcomingDrawDatesByGame: [LottoGame: [Date]] = [:]
@@ -124,15 +134,18 @@ final class TicketViewModel: ObservableObject {
     init() {
         self.repository = LottoRepository.shared
         self.ticketChecker = TicketChecker()
+        self.cloudTicketService = .shared
         loadTickets()
     }
     
     init(
         repository: LottoRepository,
-        ticketChecker: TicketChecker
+        ticketChecker: TicketChecker,
+        cloudTicketService: CloudTicketService? = nil
     ) {
         self.repository = repository
         self.ticketChecker = ticketChecker
+        self.cloudTicketService = cloudTicketService ?? .shared
         loadTickets()
     }
     
@@ -199,6 +212,22 @@ final class TicketViewModel: ObservableObject {
             return false
         }.count
     }
+
+    var cloudStorageDescription: String {
+        if isCloudSyncing {
+            return "Synchronizowanie kuponów..."
+        }
+
+        if isUsingCloudStorage {
+            if let lastCloudSyncDate {
+                return "Ostatnia synchronizacja: \(AppFormatters.polishDateTime.string(from: lastCloudSyncDate))"
+            }
+
+            return "Kupony są zapisywane lokalnie i w Firestore"
+        }
+
+        return "Kupony są zapisywane tylko lokalnie"
+    }
     
     var canAddCurrentLine: Bool {
         hasAnyCurrentInput
@@ -225,6 +254,42 @@ final class TicketViewModel: ObservableObject {
         await refreshUpcomingDrawDates(for: game)
     }
     
+    func updateAuthentication(userID: String?, email: String?) async {
+        guard userID != currentUserID else {
+            currentUserEmail = email
+            return
+        }
+
+        currentUserID = userID
+        currentUserEmail = email
+        cloudSyncMessage = nil
+        cloudSyncErrorMessage = nil
+
+        guard let userID else {
+            isUsingCloudStorage = false
+            isCloudSyncing = false
+            tickets = TicketStorage.load(userID: nil)
+            resetTicketResultCaches()
+            return
+        }
+
+        isUsingCloudStorage = true
+        await synchronizeWithCloud(userID: userID, email: email, migrateGuestTickets: true)
+    }
+
+    func synchronizeNow() async {
+        guard let currentUserID else {
+            cloudSyncErrorMessage = "Zaloguj się, aby synchronizować kupony z chmurą."
+            return
+        }
+
+        await synchronizeWithCloud(
+            userID: currentUserID,
+            email: currentUserEmail,
+            migrateGuestTickets: false
+        )
+    }
+
     func refreshUpcomingDrawDates(
         for game: LottoGame? = nil,
         forceRefresh: Bool = false
@@ -637,6 +702,7 @@ final class TicketViewModel: ObservableObject {
         
         tickets.insert(newTicket, at: 0)
         saveTickets()
+        saveTicketToCloudIfNeeded(newTicket)
         
         draftLines.removeAll()
         resetCurrentInputs()
@@ -686,6 +752,7 @@ final class TicketViewModel: ObservableObject {
         let removedCount = checkedTicketIDs.count
         tickets.removeAll { checkedTicketIDs.contains($0.id) }
         saveTickets()
+        deleteTicketsFromCloudIfNeeded(Array(checkedTicketIDs))
 
         selectedStatusFilter = .all
         selectedGameFilter = .all
@@ -696,8 +763,10 @@ final class TicketViewModel: ObservableObject {
     }
 
     func clearAllTickets() {
+        let removedIDs = tickets.map(\.id)
         tickets.removeAll()
         saveTickets()
+        deleteTicketsFromCloudIfNeeded(removedIDs)
         
         selectedStatusFilter = .all
         selectedGameFilter = .all
@@ -783,6 +852,7 @@ final class TicketViewModel: ObservableObject {
     private func deleteTicket(_ ticket: LottoTicket) {
         tickets.removeAll { $0.id == ticket.id }
         saveTickets()
+        deleteTicketsFromCloudIfNeeded([ticket.id])
         
         ticketToDelete = nil
         showDeleteAlert = false
@@ -791,11 +861,107 @@ final class TicketViewModel: ObservableObject {
     }
     
     private func loadTickets() {
-        tickets = TicketStorage.load()
+        tickets = TicketStorage.load(userID: currentUserID)
     }
     
     private func saveTickets() {
-        TicketStorage.save(tickets)
+        TicketStorage.save(tickets, userID: currentUserID)
+    }
+
+    private func synchronizeWithCloud(
+        userID: String,
+        email: String?,
+        migrateGuestTickets: Bool
+    ) async {
+        isCloudSyncing = true
+        cloudSyncErrorMessage = nil
+        cloudSyncMessage = nil
+
+        let accountLocalTickets = TicketStorage.load(userID: userID)
+        let guestTickets = migrateGuestTickets ? TicketStorage.load(userID: nil) : []
+
+        if !accountLocalTickets.isEmpty || !guestTickets.isEmpty {
+            tickets = mergeTickets(accountLocalTickets, guestTickets)
+            TicketStorage.save(tickets, userID: userID)
+        }
+
+        cloudTicketService.ensureUserDocument(userID: userID, email: email)
+        cloudTicketService.uploadTickets(tickets, userID: userID)
+
+        do {
+            let remoteTickets = try await cloudTicketService.fetchTickets(userID: userID)
+            let mergedTickets = mergeTickets(tickets, remoteTickets, accountLocalTickets, guestTickets)
+
+            tickets = mergedTickets
+            TicketStorage.save(mergedTickets, userID: userID)
+            cloudTicketService.uploadTickets(mergedTickets, userID: userID)
+
+            if migrateGuestTickets && !guestTickets.isEmpty {
+                TicketStorage.clear(userID: nil)
+            }
+
+            lastCloudSyncDate = Date()
+            cloudSyncMessage = guestTickets.isEmpty
+                ? "Kupony zostały zsynchronizowane z chmurą."
+                : "Lokalne kupony zostały przeniesione na konto i zsynchronizowane."
+            cloudSyncErrorMessage = nil
+            resetTicketResultCaches()
+        } catch {
+            AppLogger.debug("Błąd pobierania kuponów z Firestore:", error.localizedDescription)
+
+            if migrateGuestTickets && !guestTickets.isEmpty {
+                TicketStorage.clear(userID: nil)
+            }
+
+            lastCloudSyncDate = Date()
+            cloudSyncMessage = "Kupony zapisano lokalnie i dodano do synchronizacji. Pełne pobranie nastąpi po odzyskaniu połączenia."
+            cloudSyncErrorMessage = "Nie udało się teraz pobrać kuponów z chmury."
+        }
+
+        isCloudSyncing = false
+    }
+
+    private func mergeTickets(_ collections: [LottoTicket]...) -> [LottoTicket] {
+        var ticketsByID: [UUID: LottoTicket] = [:]
+
+        for collection in collections {
+            for ticket in collection {
+                if let existing = ticketsByID[ticket.id] {
+                    ticketsByID[ticket.id] = existing.createdAt >= ticket.createdAt ? existing : ticket
+                } else {
+                    ticketsByID[ticket.id] = ticket
+                }
+            }
+        }
+
+        return ticketsByID.values.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private func saveTicketToCloudIfNeeded(_ ticket: LottoTicket) {
+        guard let currentUserID else {
+            return
+        }
+
+        cloudTicketService.saveTicket(ticket, userID: currentUserID)
+        lastCloudSyncDate = Date()
+        cloudSyncErrorMessage = nil
+    }
+
+    private func deleteTicketsFromCloudIfNeeded(_ ids: [UUID]) {
+        guard let currentUserID, !ids.isEmpty else {
+            return
+        }
+
+        cloudTicketService.deleteTickets(ids: ids, userID: currentUserID)
+        lastCloudSyncDate = Date()
+        cloudSyncErrorMessage = nil
+    }
+
+    private func resetTicketResultCaches() {
+        cachedDrawResultsByGame.removeAll()
+        prizeInfoByDrawKey.removeAll()
+        loadedPrizeDrawKeys.removeAll()
+        lastTicketResultsRefresh = nil
     }
     
     private func generateUpcomingDrawDates(

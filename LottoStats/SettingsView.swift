@@ -2,10 +2,13 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var ticketViewModel: TicketViewModel
+    @ObservedObject var authViewModel: AuthenticationViewModel
 
     @State private var showClearTicketsAlert = false
     @State private var showClearCheckedTicketsAlert = false
     @State private var showClearCacheAlert = false
+    @State private var showSignOutAlert = false
+    @State private var showAuthenticationSheet = false
     @State private var lastSyncDate: Date?
     @State private var cacheSizeBytes: Int64 = 0
 
@@ -16,6 +19,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 headerView
                 dataSourceSection
+                accountSection
                 cacheSection
                 ticketsSection
                 aboutSection
@@ -55,6 +59,18 @@ struct SettingsView: View {
             Button("Anuluj", role: .cancel) {}
         } message: {
             Text("Zapisane kupony pozostaną bez zmian. Wyniki, statystyki i kwoty wygranych zostaną pobrane ponownie przy kolejnym odświeżeniu.")
+        }
+        .alert("Wylogować się?", isPresented: $showSignOutAlert) {
+            Button("Wyloguj", role: .destructive) {
+                authViewModel.signOut()
+            }
+
+            Button("Anuluj", role: .cancel) {}
+        } message: {
+            Text("Kupony zapisane na koncie pozostaną w chmurze. Po wylogowaniu aplikacja przełączy się na lokalny tryb gościa.")
+        }
+        .sheet(isPresented: $showAuthenticationSheet) {
+            AuthenticationView(viewModel: authViewModel)
         }
     }
 
@@ -100,6 +116,138 @@ struct SettingsView: View {
                 .padding(13)
                 .background(Color.green.opacity(0.075))
                 .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            }
+        }
+    }
+
+    private var accountSection: some View {
+        AppCard(tint: .purple) {
+            VStack(alignment: .leading, spacing: 14) {
+                CardHeader(
+                    title: "Konto użytkownika",
+                    subtitle: authViewModel.isAuthenticated
+                        ? "Synchronizacja kuponów z Cloud Firestore"
+                        : "Opcjonalne konto do synchronizacji kuponów",
+                    icon: authViewModel.isAuthenticated
+                        ? "person.crop.circle.badge.checkmark"
+                        : "person.crop.circle.badge.plus",
+                    tint: .purple
+                ) {
+                    Image(systemName: authViewModel.isAuthenticated ? "icloud.fill" : "icloud.slash.fill")
+                        .foregroundStyle(authViewModel.isAuthenticated ? Color.green : Color.secondary)
+                }
+
+                if authViewModel.isAuthenticated {
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.purple)
+                            .frame(width: 44, height: 44)
+                            .background(Color.purple.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(authViewModel.email ?? "Zalogowany użytkownik")
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+
+                            Text(ticketViewModel.cloudStorageDescription)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(13)
+                    .background(Color.purple.opacity(0.075))
+                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+
+                    if let message = ticketViewModel.cloudSyncMessage {
+                        AppMessageBanner(
+                            icon: "checkmark.icloud.fill",
+                            text: message,
+                            tint: .green
+                        )
+                    }
+
+                    if let errorMessage = ticketViewModel.cloudSyncErrorMessage {
+                        AppMessageBanner(
+                            icon: "icloud.slash.fill",
+                            text: errorMessage,
+                            tint: .orange
+                        )
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            Task {
+                                await ticketViewModel.synchronizeNow()
+                            }
+                        } label: {
+                            HStack(spacing: 7) {
+                                if ticketViewModel.isCloudSyncing {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                }
+
+                                Text("Synchronizuj")
+                            }
+                        }
+                        .buttonStyle(SecondaryActionButtonStyle(tint: .purple))
+                        .disabled(ticketViewModel.isCloudSyncing)
+
+                        Button {
+                            showSignOutAlert = true
+                        } label: {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .font(.subheadline.weight(.bold))
+                                .frame(width: 46, height: 46)
+                                .background(Color.red.opacity(0.11))
+                                .foregroundStyle(.red)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Wyloguj się")
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Aplikacja działa obecnie w trybie lokalnym", systemImage: "iphone")
+                            .font(.subheadline.weight(.semibold))
+
+                        Text("Zaloguj się lub utwórz konto, aby przechowywać kupony w bazie i odzyskać je na innym urządzeniu.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(13)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.tertiarySystemFill))
+                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+
+                    Button {
+                        showAuthenticationSheet = true
+                    } label: {
+                        Label("Zaloguj się lub zarejestruj", systemImage: "person.crop.circle.badge.plus")
+                    }
+                    .buttonStyle(PrimaryActionButtonStyle(tint: .purple))
+                }
+
+                if let authError = authViewModel.errorMessage {
+                    AppMessageBanner(
+                        icon: "exclamationmark.triangle.fill",
+                        text: authError,
+                        tint: .red
+                    )
+                } else if let authInfo = authViewModel.infoMessage {
+                    AppMessageBanner(
+                        icon: "checkmark.circle.fill",
+                        text: authInfo,
+                        tint: .green
+                    )
+                }
             }
         }
     }
@@ -170,7 +318,9 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 CardHeader(
                     title: "Zapisane kupony",
-                    subtitle: "Dane są przechowywane lokalnie na urządzeniu",
+                    subtitle: authViewModel.isAuthenticated
+                        ? "Dane są przechowywane lokalnie i na koncie w chmurze"
+                        : "Dane są przechowywane lokalnie na urządzeniu",
                     icon: "ticket.fill",
                     tint: AppTheme.accent
                 ) {
@@ -397,6 +547,9 @@ struct SettingsView: View {
 
 #Preview {
     NavigationStack {
-        SettingsView(ticketViewModel: TicketViewModel())
+        SettingsView(
+            ticketViewModel: TicketViewModel(),
+            authViewModel: AuthenticationViewModel()
+        )
     }
 }
