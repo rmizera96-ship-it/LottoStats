@@ -3,3 +3,17 @@
 Secrets.plist
 LottoStats/Secrets.plist
 LottoStat/Secrets.plist
+
+# Xcode user-specific files
+xcuserdata/
+*.xcuserstate
+DerivedData/
+
+# All secrets
+**/Secrets.plist
+**/GoogleService-Info.plist
+
+# Xcode local files
+**/xcuserdata/
+DerivedData/
+.DS_Store

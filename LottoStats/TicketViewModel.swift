@@ -75,6 +75,9 @@ final class TicketViewModel: ObservableObject {
     @Published private(set) var isLoadingDrawDates = false
     @Published private(set) var drawDatesSourceName = "API LOTTO"
     @Published private(set) var drawDatesErrorMessage: String?
+
+    @Published private(set) var isLoadingTicketPrizes = false
+    @Published private(set) var ticketPrizesErrorMessage: String?
     
     @Published var selectedGame: LottoGame = .lotto {
         didSet {
@@ -107,9 +110,16 @@ final class TicketViewModel: ObservableObject {
     
     private let repository: LottoRepository
     private let ticketChecker: TicketChecker
+    private let ticketPrizeCalculator = TicketPrizeCalculator()
     
     private var cachedDrawResultsByGame: [LottoGame: [DrawResult]] = [:]
     private var cachedUpcomingDrawDatesByGame: [LottoGame: [Date]] = [:]
+    private var drawDatesLastRefreshByGame: [LottoGame: Date] = [:]
+    private var lastTicketResultsRefresh: Date?
+    private var prizeInfoByDrawKey: [String: [LottoDrawPrizeInfo]] = [:]
+    private var loadedPrizeDrawKeys: Set<String> = []
+    
+    private let automaticRefreshInterval: TimeInterval = 30 * 60
     
     init() {
         self.repository = LottoRepository.shared
@@ -179,6 +189,16 @@ final class TicketViewModel: ObservableObject {
     var filteredTicketsCount: Int {
         filteredTickets.count
     }
+
+    var checkedTicketsCount: Int {
+        tickets.filter { ticket in
+            if case .checked = checkResult(for: ticket).status {
+                return true
+            }
+
+            return false
+        }.count
+    }
     
     var canAddCurrentLine: Bool {
         hasAnyCurrentInput
@@ -205,8 +225,24 @@ final class TicketViewModel: ObservableObject {
         await refreshUpcomingDrawDates(for: game)
     }
     
-    func refreshUpcomingDrawDates(for game: LottoGame? = nil) async {
+    func refreshUpcomingDrawDates(
+        for game: LottoGame? = nil,
+        forceRefresh: Bool = false
+    ) async {
         let targetGame = game ?? selectedGame
+        
+        if !forceRefresh,
+           let cachedDates = cachedUpcomingDrawDatesByGame[targetGame],
+           !cachedDates.isEmpty,
+           let lastRefresh = drawDatesLastRefreshByGame[targetGame],
+           Date().timeIntervalSince(lastRefresh) < automaticRefreshInterval {
+            return
+        }
+        
+        if forceRefresh {
+            repository.invalidateAPICache()
+            cachedUpcomingDrawDatesByGame[targetGame] = nil
+        }
         
         isLoadingDrawDates = true
         drawDatesErrorMessage = nil
@@ -221,6 +257,7 @@ final class TicketViewModel: ObservableObject {
                 cachedUpcomingDrawDatesByGame[targetGame] = []
                 drawDatesSourceName = repository.dataSourceName
                 drawDatesErrorMessage = "API nie zwróciło daty najbliższego losowania."
+                drawDatesLastRefreshByGame[targetGame] = Date()
                 isLoadingDrawDates = false
                 return
             }
@@ -234,13 +271,14 @@ final class TicketViewModel: ObservableObject {
             cachedUpcomingDrawDatesByGame[targetGame] = generatedDates
             drawDatesSourceName = repository.dataSourceName
         } catch {
-            print("Nie udało się pobrać dat losowań dla \(targetGame.displayName):", error)
+            AppLogger.debug("Nie udało się pobrać dat losowań dla", targetGame.displayName, error)
             
             cachedUpcomingDrawDatesByGame[targetGame] = []
             drawDatesSourceName = repository.dataSourceName
             drawDatesErrorMessage = "Nie udało się pobrać dat losowań z API. Spróbuj odświeżyć."
         }
         
+        drawDatesLastRefreshByGame[targetGame] = Date()
         isLoadingDrawDates = false
     }
     
@@ -252,10 +290,43 @@ final class TicketViewModel: ObservableObject {
             drawResults: drawResults
         )
     }
+
+    func winningsSummary(for ticket: LottoTicket) -> TicketWinningsSummary {
+        ticketPrizeCalculator.calculate(
+            ticket: ticket,
+            checkResult: checkResult(for: ticket),
+            prizeInfoByDrawKey: prizeInfoByDrawKey,
+            loadedDrawKeys: loadedPrizeDrawKeys
+        )
+    }
     
-    func refreshTicketResults() async {
+    func refreshTicketResults(
+        forceRefresh: Bool = false,
+        includePrizes: Bool = false
+    ) async {
         if isLoadingTicketResults {
+            while isLoadingTicketResults {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+
+            if includePrizes {
+                await refreshTicketPrizes(forceRefresh: forceRefresh)
+            }
             return
+        }
+        
+        if !forceRefresh,
+           let lastRefresh = lastTicketResultsRefresh,
+           Date().timeIntervalSince(lastRefresh) < automaticRefreshInterval {
+            if includePrizes {
+                await refreshTicketPrizes()
+            }
+            return
+        }
+        
+        if forceRefresh {
+            repository.invalidateAPICache()
+            cachedDrawResultsByGame.removeAll()
         }
         
         isLoadingTicketResults = true
@@ -274,7 +345,11 @@ final class TicketViewModel: ObservableObject {
         
         guard !gamesToRefresh.isEmpty else {
             ticketResultsSourceName = "Brak kuponów do sprawdzenia"
+            lastTicketResultsRefresh = Date()
             isLoadingTicketResults = false
+            if includePrizes {
+                await refreshTicketPrizes()
+            }
             return
         }
         
@@ -285,10 +360,8 @@ final class TicketViewModel: ObservableObject {
             do {
                 let draws = try await repository.fetchDraws(for: game)
                 updatedCache[game] = draws
-                
-                try? await Task.sleep(nanoseconds: 800_000_000)
             } catch {
-                print("Nie udało się pobrać wyników dla \(game.displayName):", error)
+                AppLogger.debug("Nie udało się pobrać wyników dla", game.displayName, error)
                 
                 failedGames.append(game.displayName)
                 
@@ -305,7 +378,116 @@ final class TicketViewModel: ObservableObject {
             ticketResultsErrorMessage = "Nie udało się pobrać wyników dla: \(failedGames.joined(separator: ", ")). Te kupony mogą używać danych lokalnych."
         }
         
+        lastTicketResultsRefresh = Date()
         isLoadingTicketResults = false
+
+        if includePrizes {
+            await refreshTicketPrizes(forceRefresh: forceRefresh)
+        }
+    }
+
+    func refreshTicketPrizes(
+        for singleTicket: LottoTicket? = nil,
+        forceRefresh: Bool = false
+    ) async {
+        if isLoadingTicketPrizes {
+            return
+        }
+
+        let ticketsToCheck = singleTicket.map { [$0] } ?? tickets
+        let drawsToLoad = uniqueDrawsNeededForPrizes(from: ticketsToCheck)
+
+        guard !drawsToLoad.isEmpty else {
+            return
+        }
+
+        isLoadingTicketPrizes = true
+        ticketPrizesErrorMessage = nil
+
+        var updatedPrizeInfo = prizeInfoByDrawKey
+        var updatedLoadedKeys = loadedPrizeDrawKeys
+        var failedDraws = 0
+
+        for draw in drawsToLoad {
+            let key = TicketPrizeCalculator.drawKey(
+                game: draw.game,
+                drawSystemId: draw.drawSystemId,
+                drawDate: draw.drawDate
+            )
+
+            if !forceRefresh && updatedLoadedKeys.contains(key) {
+                continue
+            }
+
+            do {
+                let prizeInfo = try await repository.fetchDrawPrizes(for: draw)
+
+                guard !prizeInfo.isEmpty else {
+                    failedDraws += 1
+                    continue
+                }
+
+                updatedPrizeInfo[key] = prizeInfo
+                updatedLoadedKeys.insert(key)
+            } catch {
+                AppLogger.debug(
+                    "Nie udało się pobrać wygranych dla",
+                    draw.game.displayName,
+                    draw.drawDate,
+                    error
+                )
+                failedDraws += 1
+            }
+        }
+
+        prizeInfoByDrawKey = updatedPrizeInfo
+        loadedPrizeDrawKeys = updatedLoadedKeys
+
+        if failedDraws > 0 {
+            ticketPrizesErrorMessage = "Nie udało się pobrać kwot wygranych dla części losowań. Spróbuj odświeżyć kupony."
+        }
+
+        isLoadingTicketPrizes = false
+    }
+
+    func clearCachedAPIData() {
+        LottoAPICache.shared.clear()
+        cachedDrawResultsByGame.removeAll()
+        cachedUpcomingDrawDatesByGame.removeAll()
+        drawDatesLastRefreshByGame.removeAll()
+        prizeInfoByDrawKey.removeAll()
+        loadedPrizeDrawKeys.removeAll()
+        lastTicketResultsRefresh = nil
+        ticketResultsErrorMessage = nil
+        ticketPrizesErrorMessage = nil
+        successMessage = "Pamięć podręczna została wyczyszczona. Dane zostaną pobrane przy kolejnym odświeżeniu."
+    }
+
+    private func uniqueDrawsNeededForPrizes(
+        from tickets: [LottoTicket]
+    ) -> [DrawResult] {
+        var drawsByKey: [String: DrawResult] = [:]
+
+        for ticket in tickets {
+            let drawResults = cachedDrawResultsByGame[ticket.game] ?? repository.draws(for: ticket.game)
+
+            for drawDate in ticket.drawDates {
+                guard let draw = drawResults.first(where: {
+                    Calendar.current.isDate($0.drawDate, inSameDayAs: drawDate)
+                }), draw.drawSystemId != nil else {
+                    continue
+                }
+
+                let key = TicketPrizeCalculator.drawKey(
+                    game: draw.game,
+                    drawSystemId: draw.drawSystemId,
+                    drawDate: draw.drawDate
+                )
+                drawsByKey[key] = draw
+            }
+        }
+
+        return drawsByKey.values.sorted { $0.drawDate > $1.drawDate }
     }
     
     func isMainNumberSelected(_ number: Int) -> Bool {
@@ -484,6 +666,35 @@ final class TicketViewModel: ObservableObject {
         deleteTicket(ticketToDelete)
     }
     
+    func clearCheckedTickets() {
+        let checkedTicketIDs = Set(
+            tickets.compactMap { ticket -> UUID? in
+                if case .checked = checkResult(for: ticket).status {
+                    return ticket.id
+                }
+
+                return nil
+            }
+        )
+
+        guard !checkedTicketIDs.isEmpty else {
+            errorMessage = nil
+            successMessage = "Brak sprawdzonych kuponów do usunięcia."
+            return
+        }
+
+        let removedCount = checkedTicketIDs.count
+        tickets.removeAll { checkedTicketIDs.contains($0.id) }
+        saveTickets()
+
+        selectedStatusFilter = .all
+        selectedGameFilter = .all
+        errorMessage = nil
+        successMessage = removedCount == 1
+            ? "Usunięto 1 sprawdzony kupon."
+            : "Usunięto \(removedCount) sprawdzonych kuponów."
+    }
+
     func clearAllTickets() {
         tickets.removeAll()
         saveTickets()

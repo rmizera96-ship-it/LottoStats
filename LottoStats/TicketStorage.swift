@@ -8,7 +8,7 @@ struct TicketStorage {
             let data = try JSONEncoder().encode(tickets)
             UserDefaults.standard.set(data, forKey: ticketsKey)
         } catch {
-            print("Błąd zapisu kuponów: \(error.localizedDescription)")
+            AppLogger.debug("Błąd zapisu kuponów:", error.localizedDescription)
         }
     }
     
@@ -20,7 +20,7 @@ struct TicketStorage {
         do {
             return try JSONDecoder().decode([LottoTicket].self, from: data)
         } catch {
-            print("Błąd odczytu kuponów: \(error.localizedDescription)")
+            AppLogger.debug("Błąd odczytu kuponów:", error.localizedDescription)
             return []
         }
     }

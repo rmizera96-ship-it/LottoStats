@@ -98,4 +98,8 @@ struct LottoRepository {
     func fetchHighestWins(limit: Int = 10) async throws -> [LottoHighestWin] {
         try await service.fetchHighestWins(limit: limit)
     }
+    
+    func invalidateAPICache() {
+        LottoAPICache.shared.markAllExpired()
+    }
 }

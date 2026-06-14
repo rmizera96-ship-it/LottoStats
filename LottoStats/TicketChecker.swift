@@ -35,6 +35,7 @@ struct TicketLineCheckResult: Identifiable {
 struct SingleDrawCheckResult: Identifiable {
     let id: Date
     let drawDate: Date
+    let drawSystemId: Int?
     let lineResults: [TicketLineCheckResult]
     let hasPlusResult: Bool
     let hasExtraResult: Bool
@@ -53,12 +54,14 @@ struct SingleDrawCheckResult: Identifiable {
     
     init(
         drawDate: Date,
+        drawSystemId: Int?,
         lineResults: [TicketLineCheckResult],
         hasPlusResult: Bool,
         hasExtraResult: Bool
     ) {
         self.id = drawDate
         self.drawDate = drawDate
+        self.drawSystemId = drawSystemId
         self.lineResults = lineResults
         self.hasPlusResult = hasPlusResult
         self.hasExtraResult = hasExtraResult
@@ -199,6 +202,7 @@ struct TicketChecker {
         
         return SingleDrawCheckResult(
             drawDate: result.drawDate,
+            drawSystemId: result.drawSystemId,
             lineResults: lineResults,
             hasPlusResult: hasPlusResult,
             hasExtraResult: hasExtraResult

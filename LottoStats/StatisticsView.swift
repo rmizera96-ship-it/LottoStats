@@ -20,13 +20,19 @@ struct StatisticsView: View {
                 headerSection
                 gamePickerSection
                 
-                if viewModel.isLoading {
+                if viewModel.isLoading && viewModel.stats == nil {
                     loadingSection
-                } else if let errorMessage = viewModel.errorMessage {
-                    errorSection(message: errorMessage)
                 } else if viewModel.stats == nil {
-                    emptySection
+                    if let errorMessage = viewModel.errorMessage {
+                        errorSection(message: errorMessage)
+                    } else {
+                        emptySection
+                    }
                 } else {
+                    if let errorMessage = viewModel.errorMessage {
+                        warningSection(message: errorMessage)
+                    }
+
                     summaryCard
                     mostFrequentCard
                     leastFrequentCard
@@ -37,46 +43,33 @@ struct StatisticsView: View {
                 }
             }
             .padding()
+            .safeAreaPadding(.bottom, 120)
         }
-        .navigationTitle("Statystyki")
+        .background(AppTheme.screenBackground.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             await viewModel.loadInitialData()
         }
     }
     
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Statystyki")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-            
-            Text("Statystyki liczb pobierane bezpośrednio z API LOTTO.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
+        ScreenHeader(
+            title: "Statystyki",
+            subtitle: "Sprawdź, które liczby pojawiały się najczęściej w analizowanym okresie.",
+            icon: "chart.bar.fill",
+            tint: viewModel.selectedGame.visualColor
+        )
     }
     
     private var gamePickerSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Gra")
-                .font(.headline)
-            
-            Picker("Gra", selection: selectedGameBinding) {
-                ForEach(LottoGame.allCases) { game in
-                    Text(game.displayName)
-                        .tag(game)
-                }
-            }
-            .pickerStyle(.menu)
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 18))
-        }
+        GameSelector(
+            games: LottoGame.allCases,
+            selection: selectedGameBinding
+        )
     }
     
     private var loadingSection: some View {
-        StatisticsCard {
+        StatisticsCard(tint: viewModel.selectedGame.visualColor) {
             HStack(spacing: 12) {
                 ProgressView()
                 
@@ -87,46 +80,100 @@ struct StatisticsView: View {
     }
     
     private func errorSection(message: String) -> some View {
-        StatisticsCard {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Błąd")
+        StatisticsCard(tint: .red) {
+            VStack(spacing: 14) {
+                EmptyStateArtwork(
+                    icon: "chart.bar.xaxis",
+                    tint: .red,
+                    size: 86
+                )
+
+                VStack(spacing: 6) {
+                    Text("Nie udało się pobrać statystyk")
+                        .font(.headline)
+
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                retryButton
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func warningSection(message: String) -> some View {
+        StatisticsCard(tint: .orange) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Wyświetlam ostatnio zapisane dane", systemImage: "exclamationmark.triangle.fill")
                     .font(.headline)
-                
+                    .foregroundStyle(.orange)
+
                 Text(message)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+
+                retryButton
             }
         }
+    }
+
+    private var retryButton: some View {
+        Button {
+            Task {
+                await viewModel.retry()
+            }
+        } label: {
+            Label("Spróbuj ponownie", systemImage: "arrow.clockwise")
+                .fontWeight(.semibold)
+        }
+        .buttonStyle(
+            PrimaryActionButtonStyle(
+                tint: viewModel.selectedGame.visualColor,
+                isEnabled: !viewModel.isLoading
+            )
+        )
+        .disabled(viewModel.isLoading)
     }
     
     private var emptySection: some View {
-        StatisticsCard {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Brak danych")
-                    .font(.headline)
-                
-                Text("Nie udało się pobrać statystyk dla wybranej gry.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
+        EmptyStateCard(
+            title: "Brak statystyk",
+            message: "Nie udało się pobrać statystyk dla wybranej gry.",
+            icon: "chart.bar.doc.horizontal",
+            tint: viewModel.selectedGame.visualColor
+        )
     }
     
     private var summaryCard: some View {
-        StatisticsCard {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("PODSUMOWANIE")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                
-                Text(viewModel.drawCountText)
-                    .font(.system(size: 32, weight: .bold))
-                
-                Text("Analizowany okres: \(viewModel.periodText)")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                
-                Text("Źródło: \(viewModel.dataSourceName)")
+        StatisticsCard(tint: viewModel.selectedGame.visualColor) {
+            VStack(alignment: .leading, spacing: 16) {
+                SectionHeader(
+                    title: "Podsumowanie",
+                    subtitle: "Zakres danych wykorzystanych do analizy",
+                    icon: "calendar.badge.clock",
+                    tint: viewModel.selectedGame.visualColor
+                )
+
+                HStack(spacing: 12) {
+                    StatisticSummaryTile(
+                        title: "Liczba losowań",
+                        value: viewModel.drawCountText,
+                        icon: "number.circle.fill",
+                        tint: viewModel.selectedGame.visualColor
+                    )
+
+                    StatisticSummaryTile(
+                        title: "Źródło",
+                        value: viewModel.dataSourceName,
+                        icon: "checkmark.seal.fill",
+                        tint: .green
+                    )
+                }
+
+                Label(viewModel.periodText, systemImage: "calendar")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -134,45 +181,57 @@ struct StatisticsView: View {
     }
     
     private var mostFrequentCard: some View {
-        StatisticsCard {
+        StatisticsCard(tint: viewModel.selectedGame.visualColor) {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Najczęściej losowane")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
+                SectionHeader(
+                    title: "Najczęściej losowane",
+                    subtitle: "Najwyższa liczba wystąpień",
+                    icon: "flame.fill",
+                    tint: .orange
+                )
+
                 FrequencyGrid(
                     items: viewModel.mostFrequentMainItems,
-                    circleColor: .green
+                    circleColor: viewModel.selectedGame.visualColor,
+                    highlightsTopThree: true
                 )
             }
         }
     }
     
     private var leastFrequentCard: some View {
-        StatisticsCard {
+        StatisticsCard(tint: Color(.systemGray)) {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Najrzadziej losowane")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
+                SectionHeader(
+                    title: "Najrzadziej losowane",
+                    subtitle: "Najniższa liczba wystąpień",
+                    icon: "snowflake",
+                    tint: Color(.systemGray)
+                )
+
                 FrequencyGrid(
                     items: viewModel.leastFrequentMainItems,
-                    circleColor: Color(.systemGray)
+                    circleColor: Color(.systemGray),
+                    highlightsTopThree: false
                 )
             }
         }
     }
     
     private var specialNumbersCard: some View {
-        StatisticsCard {
+        StatisticsCard(tint: .purple) {
             VStack(alignment: .leading, spacing: 18) {
-                Text(viewModel.specialNumbersTitle)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
+                SectionHeader(
+                    title: viewModel.specialNumbersTitle,
+                    subtitle: "Ranking liczb dodatkowych",
+                    icon: "star.fill",
+                    tint: .purple
+                )
+
                 FrequencyGrid(
                     items: viewModel.specialFrequencyItems,
-                    circleColor: .purple
+                    circleColor: .purple,
+                    highlightsTopThree: true
                 )
             }
         }
@@ -187,6 +246,7 @@ final class StatisticsViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     
     private let repository: LottoRepository
+    private var statsByGame: [LottoGame: LottoFrequencyStats] = [:]
     
     init() {
         self.repository = LottoRepository.shared
@@ -250,8 +310,8 @@ final class StatisticsViewModel: ObservableObject {
             return "Brak danych"
         }
         
-        let start = stats.dateFrom.formatted(date: .abbreviated, time: .omitted)
-        let end = stats.dateTo.formatted(date: .abbreviated, time: .omitted)
+        let start = AppFormatters.polishShortDate.string(from: stats.dateFrom)
+        let end = AppFormatters.polishShortDate.string(from: stats.dateTo)
         
         return "\(start) – \(end)"
     }
@@ -263,86 +323,184 @@ final class StatisticsViewModel: ObservableObject {
     }
     
     func selectGame(_ game: LottoGame) async {
+        guard game != selectedGame || stats == nil else {
+            return
+        }
+
         selectedGame = game
+        errorMessage = nil
+
+        if let cachedStats = statsByGame[game] {
+            stats = cachedStats
+            return
+        }
+
+        stats = nil
         await loadData(for: game)
+    }
+
+    func retry() async {
+        await loadData(for: selectedGame)
     }
     
     private func loadData(for game: LottoGame) async {
+        guard !isLoading else {
+            return
+        }
+
         isLoading = true
         errorMessage = nil
         
         do {
-            stats = try await repository.fetchNumberFrequencyStats(for: game)
-            
-            if stats == nil {
+            let fetchedStats = try await repository.fetchNumberFrequencyStats(for: game)
+
+            if let fetchedStats {
+                statsByGame[game] = fetchedStats
+
+                if selectedGame == game {
+                    stats = fetchedStats
+                }
+            } else {
                 errorMessage = "Brak statystyk dla gry \(game.displayName)."
             }
         } catch {
-            stats = nil
-            errorMessage = error.localizedDescription
+            if selectedGame == game {
+                if stats?.game != game {
+                    stats = statsByGame[game]
+                }
+
+                errorMessage = error.localizedDescription
+            }
         }
         
         isLoading = false
+
+        if selectedGame != game {
+            if let cachedStats = statsByGame[selectedGame] {
+                stats = cachedStats
+                errorMessage = nil
+            } else {
+                await loadData(for: selectedGame)
+            }
+        }
     }
 }
 
 struct StatisticsCard<Content: View>: View {
+    let tint: Color?
     @ViewBuilder let content: Content
-    
+
+    init(tint: Color? = nil, @ViewBuilder content: () -> Content) {
+        self.tint = tint
+        self.content = content()
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        AppCard(tint: tint) {
             content
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 4)
+    }
+}
+
+private struct StatisticSummaryTile: View {
+    let title: String
+    let value: String
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+            Text(value)
+                .font(.headline)
+                .fontWeight(.bold)
+                .minimumScaleFactor(0.75)
+                .lineLimit(2)
+
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
+        .padding(12)
+        .background(tint.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
     }
 }
 
 struct FrequencyGrid: View {
     let items: [LottoFrequencyItem]
     let circleColor: Color
-    
+    var highlightsTopThree = false
+
     private let columns = [
-        GridItem(.adaptive(minimum: 62), spacing: 12)
+        GridItem(.adaptive(minimum: 58), spacing: 10)
     ]
-    
+
     var body: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-            ForEach(items) { item in
-                VStack(spacing: 6) {
-                    ZStack {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                VStack(spacing: 7) {
+                    ZStack(alignment: .topTrailing) {
                         Circle()
-                            .fill(circleColor)
-                            .frame(width: 62, height: 62)
-                        
+                            .fill(
+                                LinearGradient(
+                                    colors: [circleColor.opacity(0.92), circleColor.opacity(0.58)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 56, height: 56)
+                            .overlay {
+                                Circle()
+                                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                            }
+                            .shadow(color: circleColor.opacity(0.22), radius: 6, x: 0, y: 4)
+
                         Text("\(item.number)")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: 17, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
+                            .frame(width: 56, height: 56)
+
+                        if highlightsTopThree && index < 3 {
+                            Text("\(index + 1)")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(circleColor)
+                                .frame(width: 18, height: 18)
+                                .background(.white)
+                                .clipShape(Circle())
+                                .overlay {
+                                    Circle().stroke(circleColor.opacity(0.18), lineWidth: 1)
+                                }
+                                .offset(x: 2, y: -2)
+                        }
                     }
-                    
+
                     Text("\(item.numberOfOccurrences)x")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                    
+                        .font(.caption.weight(.semibold))
+
                     Text(percentText(for: item))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity)
             }
         }
     }
-    
+
     private func percentText(for item: LottoFrequencyItem) -> String {
         let percent = item.percentOfOccurrences
-        
+
         if percent.rounded() == percent {
             return "\(Int(percent))%"
         }
-        
+
         return String(format: "%.1f%%", percent)
     }
 }

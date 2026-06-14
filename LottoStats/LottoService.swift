@@ -7,6 +7,7 @@ enum LottoServiceError: Error, LocalizedError {
     case invalidResponse
     case unauthorized
     case decodingFailed
+    case temporarilyUnavailable
     
     var errorDescription: String? {
         switch self {
@@ -22,6 +23,8 @@ enum LottoServiceError: Error, LocalizedError {
             return "Brak autoryzacji. Sprawdź klucz API."
         case .decodingFailed:
             return "Nie udało się odczytać danych z API."
+        case .temporarilyUnavailable:
+            return "Serwer LOTTO jest chwilowo niedostępny. Spróbuj ponownie za moment."
         }
     }
 }
@@ -338,6 +341,64 @@ struct MockLottoService: LottoService {
     }
 }
 
+// MARK: - Shared request coordination
+
+private actor LottoAPIRequestCoordinator {
+    static let shared = LottoAPIRequestCoordinator()
+
+    private var inFlightRequests: [URL: Task<(Data, HTTPURLResponse), Error>] = [:]
+    private var nextAllowedRequestStart = Date.distantPast
+    private let minimumRequestSpacing: TimeInterval = 0.18
+
+    func data(
+        for request: URLRequest,
+        using session: URLSession
+    ) async throws -> (Data, HTTPURLResponse) {
+        guard let url = request.url else {
+            throw LottoServiceError.invalidURL
+        }
+
+        if let existingTask = inFlightRequests[url] {
+            return try await existingTask.value
+        }
+
+        let now = Date()
+        let scheduledStart = max(now, nextAllowedRequestStart)
+        nextAllowedRequestStart = scheduledStart.addingTimeInterval(minimumRequestSpacing)
+        let delay = max(0, scheduledStart.timeIntervalSince(now))
+
+        let task = Task<(Data, HTTPURLResponse), Error> {
+            if delay > 0 {
+                try await Task.sleep(
+                    nanoseconds: UInt64(delay * 1_000_000_000)
+                )
+            }
+
+            let (data, response) = try await session.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw LottoServiceError.invalidResponse
+            }
+
+            return (data, httpResponse)
+        }
+
+        inFlightRequests[url] = task
+
+        defer {
+            inFlightRequests[url] = nil
+        }
+
+        return try await task.value
+    }
+}
+
+private enum LottoAPIRequestFailure: Error {
+    case transientStatus(code: Int, retryAfter: TimeInterval?)
+    case unexpectedContentType(String)
+    case decoding(Error)
+}
+
 // MARK: - Real API service
 
 struct OpenLottoService: LottoService {
@@ -365,14 +426,17 @@ struct OpenLottoService: LottoService {
         do {
             return try await fetchHistoricalDraws(for: game)
         } catch {
-            print("Nie udało się pobrać większej historii, używam ostatnich wyników:", error)
+            AppLogger.debug("Nie udało się pobrać większej historii, używam ostatnich wyników:", error)
             return try await fetchLastDrawsFallback(for: game)
         }
     }
     
     func fetchLatestDraw(for game: LottoGame) async throws -> DrawResult? {
-        let draws = try await fetchDraws(for: game)
-        return draws.first
+        guard game.isImplemented else {
+            throw LottoServiceError.unsupportedGame
+        }
+        
+        return try await fetchLastDrawsFallback(for: game).first
     }
     
     func fetchUpcomingDrawDates(for game: LottoGame, count: Int) async throws -> [Date] {
@@ -460,7 +524,13 @@ struct OpenLottoService: LottoService {
             ]
         )
         
-        let response: APINumberFrequencyResponse = try await request(url)
+        let response: APINumberFrequencyResponse = try await request(
+            url,
+            validate: { response in
+                (response.totalDraws ?? 0) > 0
+                    && !(response.numberFrequrency ?? []).isEmpty
+            }
+        )
         
         let mainNumbers = (response.numberFrequrency ?? [])
             .compactMap { item -> LottoFrequencyItem? in
@@ -609,12 +679,10 @@ struct OpenLottoService: LottoService {
                 )
                 
                 allAPIDraws.append(contentsOf: apiDraws)
-                
-                try await Task.sleep(nanoseconds: 800_000_000)
             } catch LottoServiceError.noData {
                 continue
             } catch {
-                print("Nie udało się pobrać losowania dla daty \(apiDateString(date)):", error)
+                AppLogger.debug("Nie udało się pobrać losowania dla daty", apiDateString(date), error)
                 continue
             }
         }
@@ -731,7 +799,11 @@ struct OpenLottoService: LottoService {
             ]
         )
         
-        return try await request(url)
+        let response: [APIDrawResponse] = try await request(
+            url,
+            validate: { !$0.isEmpty }
+        )
+        return response
     }
     
     private func fetchNextDrawDate(for game: LottoGame) async throws -> Date? {
@@ -742,11 +814,14 @@ struct OpenLottoService: LottoService {
             ]
         )
         
-        let response: APINextDrawResponse = try await request(url)
+        let response: APINextDrawResponse = try await request(
+            url,
+            validate: { $0.nextDrawDate != nil }
+        )
         return response.nextDrawDate
     }
     
-    // MARK: - Request
+    // MARK: - Request + cache
     
     private func makeURL(
         path: String,
@@ -766,90 +841,311 @@ struct OpenLottoService: LottoService {
         return url
     }
     
-    private func request<T: Decodable>(_ url: URL) async throws -> T {
+    private func request<T: Decodable>(
+        _ url: URL,
+        validate: (T) -> Bool = { _ in true }
+    ) async throws -> T {
+        let maxCacheAge = cacheMaxAge(for: url)
+
+        if let cachedData = LottoAPICache.shared.load(
+            for: url,
+            maxAge: maxCacheAge
+        ) {
+            do {
+                let decoded = try decodeResponse(T.self, from: cachedData)
+
+                guard validate(decoded) else {
+                    throw LottoServiceError.decodingFailed
+                }
+
+                return decoded
+            } catch {
+                AppLogger.debug("Nie udało się odczytać świeżego cache, pobieram z API:", error)
+            }
+        }
+
         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw LottoServiceError.unauthorized
         }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "accept")
-        request.setValue(apiKey, forHTTPHeaderField: "secret")
-        
-        let (data, response) = try await session.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw LottoServiceError.invalidResponse
-        }
-        
-        if httpResponse.statusCode == 401 {
-            throw LottoServiceError.unauthorized
-        }
-        
-        if httpResponse.statusCode == 404 {
-            throw LottoServiceError.noData
-        }
-        
-        guard (200...299).contains(httpResponse.statusCode) else {
-            print("LOTTO API status code:", httpResponse.statusCode)
-            
-            if let body = String(data: data, encoding: .utf8) {
-                print("LOTTO API body:", body)
-            }
-            
-            throw LottoServiceError.invalidResponse
-        }
-        
-        let contentType = httpResponse.value(forHTTPHeaderField: "content-type") ?? ""
-        
-        if !contentType.lowercased().contains("application/json") {
-            print("LOTTO API zwróciło odpowiedź inną niż JSON:", contentType)
-            
-            if let body = String(data: data, encoding: .utf8) {
-                print("LOTTO API body:", body)
-            }
-            
-            throw LottoServiceError.invalidResponse
-        }
-        
-        do {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .custom { decoder in
-                let container = try decoder.singleValueContainer()
-                let dateString = try container.decode(String.self)
-                
-                if let date = ISO8601DateFormatter.lottoWithFractionalSeconds.date(from: dateString) {
-                    return date
-                }
-                
-                if let date = ISO8601DateFormatter.lotto.date(from: dateString) {
-                    return date
-                }
-                
-                if let date = DateFormatter.lottoDateTime.date(from: dateString) {
-                    return date
-                }
-                
-                if let date = DateFormatter.lottoDateOnly.date(from: dateString) {
-                    return date
-                }
-                
-                throw DecodingError.dataCorruptedError(
-                    in: container,
-                    debugDescription: "Niepoprawny format daty: \(dateString)"
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.timeoutInterval = 20
+        urlRequest.setValue("application/json", forHTTPHeaderField: "accept")
+        urlRequest.setValue(apiKey, forHTTPHeaderField: "secret")
+
+        let maximumAttempts = 3
+        var finalError: Error = LottoServiceError.temporarilyUnavailable
+
+        for attempt in 1...maximumAttempts {
+            do {
+                let (data, httpResponse) = try await LottoAPIRequestCoordinator.shared.data(
+                    for: urlRequest,
+                    using: session
                 )
+
+                if httpResponse.statusCode == 401 {
+                    throw LottoServiceError.unauthorized
+                }
+
+                if httpResponse.statusCode == 404 {
+                    throw LottoServiceError.noData
+                }
+
+                if isTransientStatusCode(httpResponse.statusCode) {
+                    throw LottoAPIRequestFailure.transientStatus(
+                        code: httpResponse.statusCode,
+                        retryAfter: retryAfterDelay(from: httpResponse)
+                    )
+                }
+
+                guard (200...299).contains(httpResponse.statusCode) else {
+                    logUnexpectedResponse(
+                        data: data,
+                        response: httpResponse,
+                        url: url
+                    )
+                    throw LottoServiceError.invalidResponse
+                }
+
+                let contentType = httpResponse.value(
+                    forHTTPHeaderField: "content-type"
+                ) ?? ""
+
+                guard contentType.lowercased().contains("application/json") else {
+                    logUnexpectedResponse(
+                        data: data,
+                        response: httpResponse,
+                        url: url
+                    )
+                    throw LottoAPIRequestFailure.unexpectedContentType(contentType)
+                }
+
+                do {
+                    let decoded = try decodeResponse(T.self, from: data)
+
+                    guard validate(decoded) else {
+                        throw LottoAPIRequestFailure.decoding(
+                            LottoServiceError.decodingFailed
+                        )
+                    }
+
+                    LottoAPICache.shared.save(data, for: url)
+                    return decoded
+                } catch {
+                    logUnexpectedResponse(
+                        data: data,
+                        response: httpResponse,
+                        url: url
+                    )
+                    throw LottoAPIRequestFailure.decoding(error)
+                }
+            } catch {
+                finalError = publicError(from: error)
+
+                guard attempt < maximumAttempts, shouldRetry(error) else {
+                    break
+                }
+
+                let delay = retryDelay(
+                    after: error,
+                    attempt: attempt
+                )
+
+                AppLogger.debug(
+                    "Ponawiam zapytanie LOTTO (próba \(attempt + 1)/\(maximumAttempts)) za \(delay)s:",
+                    url.absoluteString
+                )
+
+                do {
+                    try await Task.sleep(
+                        nanoseconds: UInt64(delay * 1_000_000_000)
+                    )
+                } catch {
+                    throw error
+                }
             }
-            
-            return try decoder.decode(T.self, from: data)
-        } catch {
-            print("Błąd dekodowania API:", error)
-            
-            if let body = String(data: data, encoding: .utf8) {
-                print("LOTTO API body:", body)
-            }
-            
-            throw LottoServiceError.decodingFailed
         }
+
+        if let staleData = LottoAPICache.shared.load(
+            for: url,
+            maxAge: maxCacheAge,
+            allowExpired: true
+        ) {
+            do {
+                AppLogger.debug("API niedostępne, używam starego cache dla:", url.absoluteString)
+                let decoded = try decodeResponse(T.self, from: staleData)
+
+                guard validate(decoded) else {
+                    throw LottoServiceError.decodingFailed
+                }
+
+                return decoded
+            } catch {
+                AppLogger.debug("Nie udało się odczytać starego cache:", error)
+            }
+        }
+
+        throw finalError
+    }
+
+    private func isTransientStatusCode(_ statusCode: Int) -> Bool {
+        statusCode == 408
+            || statusCode == 425
+            || statusCode == 429
+            || (500...599).contains(statusCode)
+    }
+
+    private func shouldRetry(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return false
+        }
+
+        if let serviceError = error as? LottoServiceError {
+            switch serviceError {
+            case .unauthorized, .noData, .unsupportedGame, .invalidURL:
+                return false
+            case .invalidResponse, .decodingFailed, .temporarilyUnavailable:
+                return true
+            }
+        }
+
+        if error is LottoAPIRequestFailure {
+            return true
+        }
+
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .cancelled, .badURL, .unsupportedURL, .userAuthenticationRequired:
+                return false
+            default:
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func retryDelay(
+        after error: Error,
+        attempt: Int
+    ) -> TimeInterval {
+        if let requestError = error as? LottoAPIRequestFailure,
+           case let .transientStatus(_, retryAfter) = requestError,
+           let retryAfter {
+            return min(max(retryAfter, 0.5), 5)
+        }
+
+        return attempt == 1 ? 0.6 : 1.2
+    }
+
+    private func retryAfterDelay(
+        from response: HTTPURLResponse
+    ) -> TimeInterval? {
+        guard let value = response.value(forHTTPHeaderField: "Retry-After") else {
+            return nil
+        }
+
+        return TimeInterval(value)
+    }
+
+    private func publicError(from error: Error) -> Error {
+        if let serviceError = error as? LottoServiceError {
+            return serviceError
+        }
+
+        if let requestError = error as? LottoAPIRequestFailure,
+           case .decoding = requestError {
+            return LottoServiceError.decodingFailed
+        }
+
+        if error is LottoAPIRequestFailure || error is URLError {
+            return LottoServiceError.temporarilyUnavailable
+        }
+
+        return error
+    }
+
+    private func logUnexpectedResponse(
+        data: Data,
+        response: HTTPURLResponse,
+        url: URL
+    ) {
+        AppLogger.debug(
+            "LOTTO API nieoczekiwana odpowiedź [\(response.statusCode)] dla:",
+            url.absoluteString
+        )
+
+        if let body = String(data: data, encoding: .utf8) {
+            AppLogger.debug("LOTTO API body:", String(body.prefix(800)))
+        }
+    }
+
+    private func decodeResponse<T: Decodable>(
+        _ type: T.Type,
+        from data: Data
+    ) throws -> T {
+        let decoder = JSONDecoder()
+        
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let dateString = try container.decode(String.self)
+            
+            if let date = ISO8601DateFormatter.lottoWithFractionalSeconds.date(from: dateString) {
+                return date
+            }
+            
+            if let date = ISO8601DateFormatter.lotto.date(from: dateString) {
+                return date
+            }
+            
+            if let date = DateFormatter.lottoDateTime.date(from: dateString) {
+                return date
+            }
+            
+            if let date = DateFormatter.lottoDateOnly.date(from: dateString) {
+                return date
+            }
+            
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Niepoprawny format daty: \(dateString)"
+            )
+        }
+        
+        return try decoder.decode(T.self, from: data)
+    }
+    
+    private func cacheMaxAge(for url: URL) -> TimeInterval {
+        let path = url.path.lowercased()
+        
+        // Wynik dla konkretnej, historycznej daty praktycznie się nie zmienia.
+        if path.contains("draw-results/by-date-per-game") {
+            return 7 * 24 * 60 * 60
+        }
+        
+        // Najnowsze wyniki sprawdzamy częściej, ale nie przy każdym wejściu.
+        if path.contains("draw-results/last-results-per-game") {
+            return 30 * 60
+        }
+        
+        if path.contains("draw-prizes") {
+            return 30 * 24 * 60 * 60
+        }
+        
+        if path.contains("numbers-frequency") {
+            return 24 * 60 * 60
+        }
+        
+        if path.contains("highest-wins") {
+            return 24 * 60 * 60
+        }
+        
+        if path.contains("lotteries/info") {
+            return 30 * 60
+        }
+        
+        return 60 * 60
     }
     
     // MARK: - Mapping
@@ -1105,42 +1401,48 @@ struct OpenLottoService: LottoService {
 
 private struct APIDrawsListResponse: Decodable {
     let items: [APIDrawResponse]
-    
+
     init(from decoder: Decoder) throws {
-        let container = try? decoder.container(keyedBy: CodingKeys.self)
-        
-        if let container,
-           let decodedItems = try? container.decode([APIDrawResponse].self, forKey: .items) {
-            self.items = decodedItems
-            return
+        if let container = try? decoder.container(keyedBy: CodingKeys.self) {
+            if container.contains(.items) {
+                self.items = try container.decode([APIDrawResponse].self, forKey: .items)
+                return
+            }
+
+            if container.contains(.data) {
+                self.items = try container.decode([APIDrawResponse].self, forKey: .data)
+                return
+            }
+
+            if container.contains(.results) {
+                self.items = try container.decode([APIDrawResponse].self, forKey: .results)
+                return
+            }
+
+            if container.allKeys.isEmpty {
+                self.items = []
+                return
+            }
         }
-        
-        if let container,
-           let decodedData = try? container.decode([APIDrawResponse].self, forKey: .data) {
-            self.items = decodedData
-            return
-        }
-        
-        if let container,
-           let decodedResults = try? container.decode([APIDrawResponse].self, forKey: .results) {
-            self.items = decodedResults
-            return
-        }
-        
+
         if let array = try? [APIDrawResponse](from: decoder) {
             self.items = array
             return
         }
-        
-        if let single = try? APIDrawResponse(from: decoder),
-           single.drawDate != nil || single.gameType != nil || single.results != nil {
+
+        if let single = try? APIDrawResponse(from: decoder) {
             self.items = [single]
             return
         }
-        
-        self.items = []
+
+        throw DecodingError.dataCorrupted(
+            .init(
+                codingPath: decoder.codingPath,
+                debugDescription: "Odpowiedź nie zawiera listy losowań."
+            )
+        )
     }
-    
+
     private enum CodingKeys: String, CodingKey {
         case items
         case data
@@ -1156,6 +1458,40 @@ private struct APIDrawResponse: Decodable {
     let results: [APIDrawResult]?
     let showSpecialResults: Bool?
     let isNewEuroJackpotDraw: Bool?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        drawSystemId = try container.decodeIfPresent(Int.self, forKey: .drawSystemId)
+        drawDate = try container.decodeIfPresent(Date.self, forKey: .drawDate)
+        gameType = try container.decodeIfPresent(String.self, forKey: .gameType)
+        multiplierValue = try container.decodeIfPresent(Int.self, forKey: .multiplierValue)
+        results = try container.decodeIfPresent([APIDrawResult].self, forKey: .results)
+        showSpecialResults = try container.decodeIfPresent(Bool.self, forKey: .showSpecialResults)
+        isNewEuroJackpotDraw = try container.decodeIfPresent(Bool.self, forKey: .isNewEuroJackpotDraw)
+
+        guard drawSystemId != nil
+                || drawDate != nil
+                || gameType != nil
+                || results != nil else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Element nie zawiera danych losowania."
+                )
+            )
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case drawSystemId
+        case drawDate
+        case gameType
+        case multiplierValue
+        case results
+        case showSpecialResults
+        case isNewEuroJackpotDraw
+    }
 }
 
 private struct APIDrawResult: Decodable {
@@ -1171,6 +1507,30 @@ private struct APINextDrawResponse: Decodable {
     let closestPrizeValue: Double?
     let nextDrawDate: Date?
     let playSitePath: String?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        gameType = try container.decodeIfPresent(String.self, forKey: .gameType)
+        closestPrizeValue = try container.decodeIfPresent(Double.self, forKey: .closestPrizeValue)
+        nextDrawDate = try container.decodeIfPresent(Date.self, forKey: .nextDrawDate)
+        playSitePath = try container.decodeIfPresent(String.self, forKey: .playSitePath)
+
+        guard gameType != nil || nextDrawDate != nil || closestPrizeValue != nil else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Odpowiedź nie zawiera terminu kolejnego losowania."
+                )
+            )
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case gameType
+        case closestPrizeValue
+        case nextDrawDate
+        case playSitePath
+    }
 }
 
 private struct APIGameInfoResponse: Decodable {
@@ -1180,18 +1540,102 @@ private struct APIGameInfoResponse: Decodable {
     let draws: String?
     let couponPrice: String?
     let closestPrizePoolType: String?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        gameType = try container.decodeIfPresent(String.self, forKey: .gameType)
+        nextDrawDate = try container.decodeIfPresent(Date.self, forKey: .nextDrawDate)
+        closestPrizeValue = try container.decodeIfPresent(Double.self, forKey: .closestPrizeValue)
+        draws = try container.decodeIfPresent(String.self, forKey: .draws)
+        couponPrice = try container.decodeIfPresent(String.self, forKey: .couponPrice)
+        closestPrizePoolType = try container.decodeIfPresent(String.self, forKey: .closestPrizePoolType)
+
+        guard gameType != nil
+                || nextDrawDate != nil
+                || closestPrizeValue != nil
+                || draws != nil
+                || couponPrice != nil else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Odpowiedź nie zawiera informacji o grze."
+                )
+            )
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case gameType
+        case nextDrawDate
+        case closestPrizeValue
+        case draws
+        case couponPrice
+        case closestPrizePoolType
+    }
 }
 
 private struct APIJackpotResponse: Decodable {
     let jackpotValue: Double?
     let jackpotPlusValue: Double?
     let closestDraw: Date?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        jackpotValue = try container.decodeIfPresent(Double.self, forKey: .jackpotValue)
+        jackpotPlusValue = try container.decodeIfPresent(Double.self, forKey: .jackpotPlusValue)
+        closestDraw = try container.decodeIfPresent(Date.self, forKey: .closestDraw)
+
+        guard jackpotValue != nil || jackpotPlusValue != nil || closestDraw != nil else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Odpowiedź nie zawiera informacji o kumulacji."
+                )
+            )
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case jackpotValue
+        case jackpotPlusValue
+        case closestDraw
+    }
 }
 
 private struct APINumberFrequencyResponse: Decodable {
     let totalDraws: Int?
     let numberFrequrency: [APINumberFrequencyItem]?
     let numberSpecialFrequrency: [APINumberFrequencyItem]?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        totalDraws = try container.decodeIfPresent(Int.self, forKey: .totalDraws)
+        numberFrequrency = try container.decodeIfPresent(
+            [APINumberFrequencyItem].self,
+            forKey: .numberFrequrency
+        )
+        numberSpecialFrequrency = try container.decodeIfPresent(
+            [APINumberFrequencyItem].self,
+            forKey: .numberSpecialFrequrency
+        )
+
+        guard totalDraws != nil
+                || numberFrequrency != nil
+                || numberSpecialFrequrency != nil else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Odpowiedź nie zawiera statystyk liczb."
+                )
+            )
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case totalDraws
+        case numberFrequrency
+        case numberSpecialFrequrency
+    }
 }
 
 private struct APINumberFrequencyItem: Decodable {
@@ -1206,6 +1650,39 @@ private struct APIDrawPrizesResponse: Decodable {
     let drawSystemId: Int?
     let gameType: String?
     let prizesEmpty: Bool?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        prizes = try container.decodeIfPresent(
+            [String: APIPrizeRankResponse].self,
+            forKey: .prizes
+        )
+        drawDate = try container.decodeIfPresent(Date.self, forKey: .drawDate)
+        drawSystemId = try container.decodeIfPresent(Int.self, forKey: .drawSystemId)
+        gameType = try container.decodeIfPresent(String.self, forKey: .gameType)
+        prizesEmpty = try container.decodeIfPresent(Bool.self, forKey: .prizesEmpty)
+
+        guard prizes != nil
+                || drawDate != nil
+                || drawSystemId != nil
+                || gameType != nil
+                || prizesEmpty != nil else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Odpowiedź nie zawiera danych o wygranych."
+                )
+            )
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case prizes
+        case drawDate
+        case drawSystemId
+        case gameType
+        case prizesEmpty
+    }
 }
 
 private struct APIPrizeRankResponse: Decodable {

@@ -1,6 +1,6 @@
 import Foundation
 
-struct LottoTicket: Identifiable, Codable, Equatable {
+struct LottoTicket: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     let gameName: String
     let lines: [TicketLine]
@@ -117,6 +117,3 @@ struct LottoTicket: Identifiable, Codable, Equatable {
     }
 }
 
-extension LottoTicket {
-    static let samples: [LottoTicket] = []
-}

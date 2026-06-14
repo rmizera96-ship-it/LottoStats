@@ -1,6 +1,6 @@
 import Foundation
 
-struct TicketLine: Identifiable, Codable, Equatable {
+struct TicketLine: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     let numbers: [Int]
     let extraNumbers: [Int]

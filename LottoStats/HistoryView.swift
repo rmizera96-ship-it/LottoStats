@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct HistoryView: View {
-    @StateObject private var viewModel = LottoDataViewModel()
+    @StateObject private var viewModel = LottoDataViewModel(mode: .history)
     
     private let repository = LottoRepository.shared
     
@@ -18,36 +18,35 @@ struct HistoryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                
-                Picker("Gra", selection: selectedGameBinding) {
-                    ForEach(repository.availableGames()) { game in
-                        Text(game.displayName)
-                            .tag(game)
-                    }
-                }
-                .pickerStyle(.segmented)
-                
-                AppCard {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Źródło danych")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            
-                            Text(viewModel.dataSourceName)
-                                .font(.headline)
-                        }
-                        
-                        Spacer()
-                        
-                        Button {
+                ScreenHeader(
+                    title: "Historia losowań",
+                    subtitle: "Wyniki oraz szczegóły wygranych z oficjalnego API LOTTO.",
+                    icon: "clock.arrow.circlepath",
+                    tint: viewModel.selectedGame.visualColor
+                )
+
+                GameSelector(
+                    games: repository.availableGames(),
+                    selection: selectedGameBinding
+                )
+
+                AppCard(tint: viewModel.selectedGame.visualColor) {
+                    CardHeader(
+                        title: "Historia z API LOTTO",
+                        subtitle: "Źródło: \(viewModel.dataSourceName)",
+                        icon: "clock.badge.checkmark",
+                        tint: viewModel.selectedGame.visualColor
+                    ) {
+                        IconCircleButton(
+                            systemImage: "arrow.clockwise",
+                            tint: viewModel.selectedGame.visualColor,
+                            isLoading: viewModel.isLoading
+                        ) {
                             Task {
                                 await viewModel.refresh()
                             }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.headline)
                         }
+                        .accessibilityLabel("Odśwież historię")
                     }
                 }
                 
@@ -61,16 +60,12 @@ struct HistoryView: View {
                         }
                     }
                 } else if viewModel.draws.isEmpty {
-                    AppCard {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Brak historii")
-                                .font(.headline)
-                            
-                            Text(viewModel.errorMessage ?? "Dla tej gry nie mamy jeszcze danych.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    EmptyStateCard(
+                        title: "Brak historii losowań",
+                        message: viewModel.errorMessage ?? "Dla tej gry nie mamy jeszcze danych. Spróbuj odświeżyć widok za chwilę.",
+                        icon: "clock.arrow.circlepath",
+                        tint: viewModel.selectedGame.visualColor
+                    )
                 } else {
                     ForEach(viewModel.draws) { draw in
                         DrawHistoryRow(draw: draw)
@@ -78,8 +73,10 @@ struct HistoryView: View {
                 }
             }
             .padding()
+            .safeAreaPadding(.bottom, 110)
         }
-        .navigationTitle("Historia losowań")
+        .background(AppTheme.screenBackground.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             await viewModel.loadInitialData()
         }
@@ -88,30 +85,25 @@ struct HistoryView: View {
 
 struct DrawHistoryRow: View {
     let draw: DrawResult
-    
+
     var body: some View {
-        AppCard {
+        AppCard(tint: draw.game.visualColor) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(draw.gameName)
-                            .font(.headline)
-                        
-                        Text(draw.drawDate.formatted(date: .long, time: .omitted))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    Spacer()
-                    
+                CardHeader(
+                    title: draw.gameName,
+                    subtitle: AppFormatters.polishLongDate.string(from: draw.drawDate),
+                    icon: draw.game.symbolName,
+                    tint: draw.game.visualColor
+                ) {
                     if let drawSystemId = draw.drawSystemId {
-                        Text("ID \(drawSystemId)")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color(.tertiarySystemBackground))
+                        Text("#\(drawSystemId)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(draw.game.visualColor)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .background(draw.game.visualColor.opacity(0.11))
                             .clipShape(Capsule())
+                            .accessibilityLabel("Numer losowania \(drawSystemId)")
                     }
                 }
                 
@@ -123,7 +115,7 @@ struct DrawHistoryRow: View {
                     
                     HStack {
                         ForEach(draw.numbers, id: \.self) { number in
-                            NumberBall(number: number, style: .lotto, size: 34)
+                            NumberBall(number: number, style: draw.game.ballStyle, size: 34)
                         }
                     }
                 }
@@ -186,7 +178,7 @@ struct DrawPrizesSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
-                withAnimation {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                     isExpanded.toggle()
                 }
                 
@@ -212,7 +204,8 @@ struct DrawPrizesSection: View {
                 }
             }
             .buttonStyle(.plain)
-            
+            .padding(.vertical, 2)
+
             if isExpanded {
                 if draw.drawSystemId == nil {
                     Text("Brak identyfikatora losowania. Wygrane są dostępne tylko dla danych pobranych z API LOTTO.")
@@ -226,13 +219,34 @@ struct DrawPrizesSection: View {
                             .foregroundStyle(.secondary)
                     }
                 } else if let errorMessage {
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+
+                        Button {
+                            Task {
+                                await loadPrizes()
+                            }
+                        } label: {
+                            Label("Spróbuj ponownie", systemImage: "arrow.clockwise")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 } else if prizes.isEmpty {
-                    Text("Brak informacji o wygranych dla tego losowania.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Image(systemName: "trophy")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 30, height: 30)
+                            .background(Color(.tertiarySystemFill))
+                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+                        Text("Brak informacji o wygranych dla tego losowania.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     ForEach(prizes) { prizeInfo in
                         PrizeGameSection(prizeInfo: prizeInfo)
@@ -258,7 +272,7 @@ struct DrawPrizesSection: View {
         } catch {
             prizes = []
             errorMessage = error.localizedDescription
-            hasLoaded = true
+            hasLoaded = false
         }
         
         isLoading = false
@@ -299,9 +313,13 @@ struct PrizeGameSection: View {
                 }
             }
         }
-        .padding(12)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .padding(14)
+        .background(Color(.tertiarySystemBackground).opacity(0.82))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color(.separator).opacity(0.18), lineWidth: 1)
+        }
     }
     
     private func rankName(_ rank: String) -> String {
@@ -353,8 +371,8 @@ struct PrizeGameSection: View {
         formatter.locale = Locale(identifier: "pl_PL")
         formatter.numberStyle = .currency
         formatter.currencyCode = "PLN"
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = value.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 2
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
         
         return formatter.string(from: NSNumber(value: value)) ?? "\(value) zł"
     }

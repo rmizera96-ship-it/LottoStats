@@ -3,6 +3,24 @@ import SwiftUI
 struct TicketDetailView: View {
     let ticket: LottoTicket
     let checkResult: TicketCheckResult
+    let winningsSummary: TicketWinningsSummary
+    let isLoadingWinnings: Bool
+
+    init(
+        ticket: LottoTicket,
+        checkResult: TicketCheckResult,
+        winningsSummary: TicketWinningsSummary? = nil,
+        isLoadingWinnings: Bool = false
+    ) {
+        self.ticket = ticket
+        self.checkResult = checkResult
+        self.winningsSummary = winningsSummary ?? TicketWinningsSummary(
+            wins: [],
+            checkedDrawsCount: checkResult.checkedDrawsCount,
+            loadedDrawsCount: 0
+        )
+        self.isLoadingWinnings = isLoadingWinnings
+    }
     
     private var dateRangeText: String {
         let sortedDates = ticket.drawDates.sorted()
@@ -13,14 +31,17 @@ struct TicketDetailView: View {
         }
         
         if Calendar.current.isDate(firstDate, inSameDayAs: lastDate) {
-            return firstDate.formatted(date: .long, time: .omitted)
+            return AppFormatters.polishLongDate.string(from: firstDate)
         }
         
-        return "\(firstDate.formatted(date: .long, time: .omitted)) - \(lastDate.formatted(date: .long, time: .omitted))"
+        return "\(AppFormatters.polishLongDate.string(from: firstDate)) - \(AppFormatters.polishLongDate.string(from: lastDate))"
     }
     
-    private var hasExtraNumbers: Bool {
-        ticket.lines.contains { !$0.extraNumbers.isEmpty }
+    private var bestMainHit: Int {
+        checkResult.checkedDraws
+            .flatMap { $0.lineResults }
+            .map { $0.lottoMatchedNumbers.count }
+            .max() ?? 0
     }
     
     var body: some View {
@@ -36,28 +57,31 @@ struct TicketDetailView: View {
                 checkResultsSection
             }
             .padding()
+            .safeAreaPadding(.bottom, 30)
         }
+        .background(AppTheme.screenBackground.ignoresSafeArea())
         .navigationTitle("Szczegóły kuponu")
         .navigationBarTitleDisplayMode(.inline)
     }
     
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(ticket.gameName)
-                .font(.largeTitle)
-                .fontWeight(.bold)
-            
-            Text("Szczegóły zapisanego kuponu i wyniki sprawdzania.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
+        ScreenHeader(
+            title: ticket.gameName,
+            subtitle: "Szczegóły zapisanego kuponu i wyniki sprawdzania.",
+            icon: ticket.game.symbolName,
+            tint: ticket.game.visualColor
+        )
     }
     
     private var ticketInfoSection: some View {
-        AppCard {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Informacje o kuponie")
-                    .font(.headline)
+        AppCard(tint: ticket.game.visualColor) {
+            VStack(alignment: .leading, spacing: 14) {
+                SectionHeader(
+                    title: "Informacje o kuponie",
+                    subtitle: "Status i przypisane losowania",
+                    icon: "ticket.fill",
+                    tint: ticket.game.visualColor
+                )
                 
                 HStack {
                     Text(checkResult.status.displayName)
@@ -81,7 +105,7 @@ struct TicketDetailView: View {
                         .fontWeight(.semibold)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Color.blue.opacity(0.15))
+                        .background(ticket.game.visualColor.opacity(0.15))
                         .clipShape(Capsule())
                     
                     if ticket.includesPlus {
@@ -113,7 +137,7 @@ struct TicketDetailView: View {
                         .fontWeight(.semibold)
                         .foregroundStyle(.secondary)
                     
-                    Text(ticket.createdAt.formatted(date: .long, time: .shortened))
+                    Text(AppFormatters.polishDateTime.string(from: ticket.createdAt))
                         .font(.subheadline)
                 }
             }
@@ -122,14 +146,22 @@ struct TicketDetailView: View {
     
     private var ticketLinesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Zestawy liczb")
-                .font(.headline)
+            SectionHeader(
+                title: "Zestawy liczb",
+                subtitle: "\(ticket.lines.count) zapisanych zestawów",
+                icon: "list.number",
+                tint: ticket.game.visualColor
+            )
             
             ForEach(Array(ticket.lines.enumerated()), id: \.element.id) { index, line in
-                AppCard {
+                AppCard(tint: ticket.game.visualColor) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Zestaw \(index + 1)")
-                            .font(.headline)
+                        CardHeader(
+                            title: "Zestaw \(index + 1)",
+                            subtitle: "Zapisane liczby kuponu",
+                            icon: "number.square.fill",
+                            tint: ticket.game.visualColor
+                        )
                         
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Liczby główne")
@@ -174,42 +206,122 @@ struct TicketDetailView: View {
     
     private var checkResultsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Wyniki sprawdzania")
-                .font(.headline)
+            SectionHeader(
+                title: "Wyniki sprawdzania",
+                subtitle: "Porównanie kuponu z wynikami losowań",
+                icon: "checkmark.circle.fill",
+                tint: .green
+            )
             
             if checkResult.checkedDraws.isEmpty {
-                AppCard {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Kupon nie został jeszcze sprawdzony.")
-                            .font(.headline)
-                        
-                        Text("Wyniki pojawią się po przypisanym losowaniu.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                EmptyStateCard(
+                    title: "Kupon czeka na losowanie",
+                    message: "Wyniki pojawią się tutaj automatycznie po przypisanym losowaniu.",
+                    icon: "clock.fill",
+                    tint: .orange
+                )
             } else {
-                AppCard {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Sprawdzone losowania")
-                            .font(.headline)
-                        
-                        Text("\(checkResult.checkedDrawsCount)/\(checkResult.totalDrawsCount)")
-                            .font(.title2)
-                            .fontWeight(.bold)
+                AppCard(tint: .green) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        CardHeader(
+                            title: "Sprawdzone losowania",
+                            subtitle: "\(checkResult.checkedDrawsCount) z \(checkResult.totalDrawsCount) wyników jest już dostępnych",
+                            icon: "checkmark.seal.fill",
+                            tint: .green
+                        ) {
+                            if winningsSummary.hasAnyWin {
+                                CelebrationBadge(
+                                    text: AppFormatters.currency(winningsSummary.totalAmount),
+                                    tint: .green
+                                )
+                            } else if bestMainHit >= 3 {
+                                CelebrationBadge(
+                                    text: "\(bestMainHit) trafienia",
+                                    tint: .green
+                                )
+                            }
+                        }
+
+                        winningsOverview
                     }
                 }
                 
                 ForEach(checkResult.checkedDraws) { drawCheck in
                     TicketDrawDetailCard(
                         ticket: ticket,
-                        check: drawCheck
+                        check: drawCheck,
+                        wins: winningsSummary.wins(for: drawCheck.drawDate),
+                        isWinningsComplete: winningsSummary.isComplete
                     )
                 }
             }
         }
     }
     
+
+    @ViewBuilder
+    private var winningsOverview: some View {
+        if winningsSummary.isComplete {
+            HStack(spacing: 12) {
+                Image(systemName: winningsSummary.hasAnyWin ? "banknote.fill" : "xmark.circle.fill")
+                    .font(.headline)
+                    .foregroundStyle(winningsSummary.hasAnyWin ? Color.green : Color.secondary)
+                    .frame(width: 38, height: 38)
+                    .background(
+                        (winningsSummary.hasAnyWin ? Color.green : Color.secondary)
+                            .opacity(0.12)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(winningsTitle)
+                        .font(.subheadline.weight(.semibold))
+
+                    Text(winningsSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+            .padding(12)
+            .background(Color.green.opacity(winningsSummary.hasAnyWin ? 0.09 : 0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        } else if isLoadingWinnings {
+            HStack(spacing: 10) {
+                ProgressView()
+                Text("Pobieranie kwot wygranych...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Label("Kwoty wygranych są chwilowo niedostępne.", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+    }
+
+
+    private var winningsTitle: String {
+        if winningsSummary.hasAnyWin {
+            return checkResult.status == .checked ? "Łączna wygrana" : "Dotychczasowa wygrana"
+        }
+
+        return checkResult.status == .checked
+            ? "Brak wygranej pieniężnej"
+            : "Dotychczas brak wygranej pieniężnej"
+    }
+
+    private var winningsSubtitle: String {
+        if winningsSummary.hasAnyWin {
+            return AppFormatters.currency(winningsSummary.totalAmount)
+        }
+
+        return checkResult.status == .checked
+            ? "Żaden zestaw nie osiągnął płatnego stopnia wygranej."
+            : "Pozostałe losowania nadal mogą przynieść wygraną."
+    }
+
     private var statusBackground: Color {
         switch checkResult.status {
         case .checked:
@@ -217,7 +329,7 @@ struct TicketDetailView: View {
         case .partiallyChecked:
             return Color.orange.opacity(0.2)
         case .active:
-            return Color.blue.opacity(0.2)
+            return ticket.game.visualColor.opacity(0.2)
         case .waitingForResults:
             return Color.orange.opacity(0.2)
         }
@@ -229,7 +341,7 @@ struct TicketDetailView: View {
         }
         
         if checkResult.checkedDraws.isEmpty {
-            return .lotto
+            return ticket.game.ballStyle
         }
         
         return .inactive
@@ -251,12 +363,18 @@ struct TicketDetailView: View {
 private struct TicketDrawDetailCard: View {
     let ticket: LottoTicket
     let check: SingleDrawCheckResult
+    let wins: [TicketPrizeWin]
+    let isWinningsComplete: Bool
     
     var body: some View {
-        AppCard {
+        AppCard(tint: ticket.game.visualColor) {
             VStack(alignment: .leading, spacing: 12) {
-                Text(check.drawDate.formatted(date: .long, time: .omitted))
-                    .font(.headline)
+                CardHeader(
+                    title: AppFormatters.polishLongDate.string(from: check.drawDate),
+                    subtitle: "Wyniki zestawów z tego losowania",
+                    icon: "calendar.badge.checkmark",
+                    tint: ticket.game.visualColor
+                )
                 
                 ForEach(check.lineResults) { lineResult in
                     VStack(alignment: .leading, spacing: 8) {
@@ -296,6 +414,41 @@ private struct TicketDrawDetailCard: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                        }
+
+                        let lineWins = wins.filter { $0.lineIndex == lineResult.lineIndex }
+
+                        if !lineWins.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(lineWins) { win in
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "banknote.fill")
+                                            .foregroundStyle(.green)
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("\(win.source.rawValue) • \(win.rankDisplayName)")
+                                                .font(.caption.weight(.semibold))
+
+                                            Text("Trafienie: \(win.matchDescription)")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+
+                                        Spacer()
+
+                                        Text(AppFormatters.currency(win.amount))
+                                            .font(.caption.weight(.bold))
+                                            .foregroundStyle(.green)
+                                    }
+                                    .padding(10)
+                                    .background(Color.green.opacity(0.09))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                }
+                            }
+                        } else if isWinningsComplete {
+                            Text("Brak wygranej pieniężnej dla tego zestawu.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     

@@ -45,8 +45,21 @@ struct BestResultCalculator {
     }
     
     func calculate(from tickets: [LottoTicket]) -> UserBestResult? {
+        calculate(
+            from: tickets,
+            checkResult: ticketChecker.check(ticket:)
+        )
+    }
+    
+    func calculate(
+        from tickets: [LottoTicket],
+        checkResult: (LottoTicket) -> TicketCheckResult
+    ) -> UserBestResult? {
         let allResults = tickets.flatMap { ticket in
-            resultsForTicket(ticket)
+            resultsForTicket(
+                ticket,
+                checkResult: checkResult(ticket)
+            )
         }
         
         return allResults.max { first, second in
@@ -58,10 +71,11 @@ struct BestResultCalculator {
         }
     }
     
-    private func resultsForTicket(_ ticket: LottoTicket) -> [UserBestResult] {
-        let checkResult = ticketChecker.check(ticket: ticket)
-        
-        return checkResult.checkedDraws.flatMap { drawCheck in
+    private func resultsForTicket(
+        _ ticket: LottoTicket,
+        checkResult: TicketCheckResult
+    ) -> [UserBestResult] {
+        checkResult.checkedDraws.flatMap { drawCheck in
             drawCheck.lineResults.map { lineResult in
                 UserBestResult(
                     gameName: ticket.gameName,
